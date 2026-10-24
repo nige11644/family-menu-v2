@@ -1,5 +1,5 @@
 ﻿/* 家宴 Service Worker：缓存应用外壳与菜品图，弱网也能看做法 */
-const VERSION = 'jiayan-v28';
+const VERSION = 'jiayan-v29';
 const SHELL = [
   './',
   './index.html',
@@ -10,7 +10,6 @@ const SHELL = [
   './assets/js/demo-store.js',
   './assets/js/cloud-store.js',
   './assets/js/vendor/supabase.js',
-  './assets/js/wx-share.js',
   './assets/js/seed.js',
   './assets/js/config.js',
   './assets/img/app-icon.png',
@@ -24,9 +23,7 @@ const SHELL = [
   './assets/img/dish-tremella.jpg',
   './assets/img/dish-mapo-tofu.jpg',
   './assets/img/dish-steamed-fish.jpg',
-  './assets/img/dish-noodles.jpg',
-  './assets/img/share-cover.jpg',
-  './assets/js/vendor/jweixin.js'
+  './assets/img/dish-noodles.jpg'
 ];
 
 self.addEventListener('install', (event) => {

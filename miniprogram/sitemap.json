@@ -1,4 +1,0 @@
-{
-  "desc": "家宴点菜小程序壳",
-  "rules": [{ "action": "allow", "page": "*" }]
-}
