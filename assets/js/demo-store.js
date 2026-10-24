@@ -234,6 +234,18 @@ class DemoStore {
     return next;
   }
 
+  // 演示模式没有 Storage，直接把压缩后的图片存成 data URL
+  async uploadAvatar(blob) {
+    const url = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result || ''));
+      fr.onerror = () => reject(new Error('图片读取失败'));
+      fr.readAsDataURL(blob);
+    });
+    await this.updateProfile({ avatar: url });
+    return url;
+  }
+
   // ---- 菜品 ----
   async listDishes() {
     return clone(this._db().dishes);

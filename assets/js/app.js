@@ -45,10 +45,48 @@ const AVATARS = [
 const avatarPreset = (key) => AVATARS.find((a) => a.key === key) || null;
 
 function avatarCircle(s, size = '') {
-  const p = avatarPreset(s?.avatar);
   const cls = `avatar${size ? ` ${size}` : ''}`;
+  // 自定义头像存的是公开 URL（或演示模式下的 data URL）
+  if (/^(https?:|data:image)/i.test(s?.avatar || '')) {
+    return `<span class="${cls}"><img class="av-img" src="${esc(s.avatar)}" alt=""></span>`;
+  }
+  const p = avatarPreset(s?.avatar);
   if (p) return `<span class="${cls}" style="background:${p.bg}"><span class="av-emoji">${p.emoji}</span></span>`;
   return `<span class="${cls}">${esc((s?.nickname || '我').slice(0, 1))}</span>`;
+}
+
+// 把用户选的照片裁成正方形并压缩成 JPEG（纯 Canvas，不需要构建工具）
+function squareJpeg(file, size = 240) {
+  return new Promise((resolve, reject) => {
+    const objUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, size, size);
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        canvas.toBlob((b) => {
+          URL.revokeObjectURL(objUrl);
+          b ? resolve(b) : reject(new Error('图片转换失败'));
+        }, 'image/jpeg', 0.86);
+      } catch (e) {
+        URL.revokeObjectURL(objUrl);
+        reject(e);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objUrl);
+      reject(new Error('无法读取这张图片'));
+    };
+    img.src = objUrl;
+  });
 }
 
 // 家人头像：按 userId 查当前家庭头像表，查不到就回落到昵称首字
@@ -2402,13 +2440,16 @@ function pageSettings() {
 
 function openAvatarSheet() {
   const cur = state.session?.avatar || '';
+  const isPhoto = /^(https?:|data:image)/i.test(cur);
   openSheet({
     title: '换个头像',
-    sub: '挑一个代表你的小图标',
+    sub: '挑一个预设，或上传自己的照片',
     body: `<div class="avatar-grid">${AVATARS.map((a) => `
       <button class="avatar-opt ${a.key === cur ? 'active' : ''}" data-avatar="${a.key}" aria-label="头像 ${a.key}">
         <span class="avatar-opt-pic" style="background:${a.bg}">${a.emoji}</span>
-      </button>`).join('')}</div>`,
+      </button>`).join('')}</div>
+      <button class="avatar-upload-btn" id="avatar-pick">${isPhoto ? '重新上传照片' : '上传照片'}</button>
+      <input type="file" accept="image/*" id="avatar-file" hidden>`,
     footer: `<button class="btn ghost" id="avatar-reset">恢复默认（昵称首字）</button>`
   });
   const save = async (key) => {
@@ -2424,6 +2465,23 @@ function openAvatarSheet() {
     b.addEventListener('click', () => save(b.dataset.avatar));
   });
   document.getElementById('avatar-reset')?.addEventListener('click', () => save(''));
+  const file = document.getElementById('avatar-file');
+  document.getElementById('avatar-pick')?.addEventListener('click', () => file?.click());
+  file?.addEventListener('change', async () => {
+    const f = file.files && file.files[0];
+    if (!f) return;
+    try {
+      if (!state.store.uploadAvatar) throw new Error('当前模式不支持上传头像');
+      toast('正在处理照片…');
+      const blob = await squareJpeg(f, 240);
+      await state.store.uploadAvatar(blob);
+      state.session = state.store.getSession();
+      if (state.session?.userId) state.avatarMap.set(state.session.userId, state.session.avatar || '');
+      toast('头像已换好', { type: 'success' });
+      document.querySelector('.sheet-backdrop')?.click();
+      renderPreserveScroll();
+    } catch (err) { toast(err.message || '图片处理失败'); }
+  });
 }
 
 function bindSettings() {

@@ -239,6 +239,28 @@ export class CloudStore {
     }));
   }
 
+  // 上传自定义头像：前端已裁成方形 JPEG，这里只负责存文件并回写 URL
+  async uploadAvatar(blob) {
+    if (!this.session) throw new Error('请先进入家宴');
+    const path = `${this._userId}/avatar.jpg`;
+    const { error } = await this.client.storage
+      .from('avatars')
+      .upload(path, blob, { upsert: true, contentType: 'image/jpeg', cacheControl: '60' });
+    if (error) {
+      const msg = String(error.message || '');
+      if (/bucket not found/i.test(msg)) {
+        throw new Error('还没有 avatars 存储桶：请先执行 supabase/avatar-upload.sql');
+      }
+      if (/row-level security|not authorized|permission/i.test(msg)) {
+        throw new Error('没有上传权限：请确认 avatar-upload.sql 里的 Storage 策略已执行');
+      }
+      throw new Error(msg || '头像上传失败');
+    }
+    const { data } = this.client.storage.from('avatars').getPublicUrl(path);
+    await this.updateProfile({ avatar: `${data.publicUrl}?v=${Date.now()}` });
+    return this.session?.avatar || '';
+  }
+
   /* ---------- 家庭 ---------- */
   async createFamily({ name, nickname }) {
     const famName = (name || '我家').trim().slice(0, 16);
@@ -338,7 +360,7 @@ export class CloudStore {
       s.nickname = nickname.trim().slice(0, 12);
     }
     if (avatar !== undefined) {
-      const next = String(avatar || '').slice(0, 24);
+      const next = String(avatar || '').slice(0, 512);
       const { error } = await this.client.from('user_profiles')
         .update({ avatar: next, updated_at: new Date().toISOString() })
         .eq('user_id', s.userId);
