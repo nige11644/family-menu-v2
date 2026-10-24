@@ -310,19 +310,8 @@ export class CloudStore {
     });
     if (error) throw friendly(error);
     await this._loadSession();
-    // 服务端 join_family 对已加入的家庭是 do nothing，角色不会更新，
-    // 所以这里按本次选择强制同步角色（否则选「我掌勺」也会被当成家人，厨师端进不去）
-    if (this.session?.currentFamilyId && this.session.role !== wanted) {
-      const { error: rErr } = await this.client
-        .from('family_member')
-        .update({ role: wanted })
-        .eq('user_id', this.session.userId)
-        .eq('family_id', this.session.currentFamilyId);
-      if (rErr) throw friendly(rErr);
-      this.session.role = wanted;
-      const curFm = this.session.families.find((f) => f.familyId === this.session.currentFamilyId);
-      if (curFm) curFm.role = wanted;
-    }
+    // 角色由服务端 join_family 判定（只有原本就是厨师的人才能以厨师身份加入），
+    // 客户端不再直接改 family_member.role，避免任何人自提权
     this._resubscribe();
     this._emit('session');
     return this.session;
@@ -373,11 +362,9 @@ export class CloudStore {
       if (error) throw friendly(error);
       s.avatar = next;
     }
-    // 昵称/角色按家庭存在 family_member 上
-    if ((nickname || role !== undefined) && s.currentFamilyId) {
-      const patch = {};
-      if (nickname) patch.nickname = nickname.trim().slice(0, 12);
-      if (role !== undefined) patch.role = Number(role);
+    // 昵称按家庭存在 family_member 上（role 只由服务端函数维护，客户端不可改）
+    if (nickname && s.currentFamilyId) {
+      const patch = { nickname: nickname.trim().slice(0, 12) };
       const { error } = await this.client.from('family_member')
         .update(patch)
         .eq('user_id', s.userId)
@@ -385,7 +372,6 @@ export class CloudStore {
       if (error) throw friendly(error);
       const curFm = s.families.find((f) => f.familyId === s.currentFamilyId);
       if (curFm) Object.assign(curFm, patch);
-      if (role !== undefined) s.role = Number(role);
     }
     this._emit('session');
     return s;
