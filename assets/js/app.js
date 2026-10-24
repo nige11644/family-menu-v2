@@ -27,6 +27,12 @@ const state = {
   reviewContext: null,       // 好评上下文（review_context RPC 返回）
   reviewDraft: null,         // 好评表单草稿（按 session 缓存）
   reviewEditing: false,      // 已送好评后是否正在修改
+  dice: null,                // 摇骰子上下文（dice_context RPC 返回）
+  diceLoaded: false,         // 是否已加载过骰子数据（SQL 未执行时保持 false，入口自动隐藏）
+  diceRule: 'max_lose',      // 开局默认规则
+  diceRevealId: '',          // 已播过揭晓动画的局 id，避免重复渲染时反复翻转
+  diceTimer: null,           // 60 秒倒计时定时器
+  diceRolling: false,        // 骰子请求进行中（防重复点击）
   routeName: '',
   ready: false
 };
@@ -175,11 +181,41 @@ async function refreshData(silent = false) {
   } catch (err) {
     if (!silent) toast(err.message || '加载失败', { duration: 4000 });
   }
+
+  // 放在 try 之外：即使菜品/订单加载失败，骰子入口也要能正常判断
+  await loadDice(true);
+}
+
+/* 读取摇骰子状态（dice.sql 未执行 / 演示模式时静默隐藏入口） */
+async function loadDice(silent = true) {
+  if (!state.store.diceContext || !state.session) {
+    state.dice = null;
+    state.diceLoaded = false;
+    return;
+  }
+  try {
+    const ctx = await state.store.diceContext();
+    state.dice = ctx;
+    state.diceLoaded = !!ctx;
+  } catch (err) {
+    state.dice = null;
+    state.diceLoaded = false;
+    if (!silent) toast(err.message || '摇骰子加载失败', { duration: 3000 });
+  }
 }
 
 let refreshTimer = null;
 function onRealtime(event) {
   if (!state.ready || event.type === 'profile') return;
+  // 骰子局变化：只刷新骰子状态，避免整页订单重新拉取
+  if (event.type === 'dice') {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      await loadDice(true);
+      renderPreserveScroll();
+    }, 120);
+    return;
+  }
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(async () => {
     const prevIds = new Set(state.orders.map((o) => o.id));
@@ -272,6 +308,8 @@ function render() {
     html = pageOrders();
   } else if (path === '/review') {
     html = pageReview();
+  } else if (path === '/dice') {
+    html = pageDice();
   } else if (path === '/chef') {
     state.routeName = 'chef';
     html = pageChefBoard();
@@ -301,6 +339,7 @@ function renderPreserveScroll() {
   if (path === '/menu') html = pageMenu();
   else if (path === '/orders') html = pageOrders();
   else if (path === '/review') html = pageReview();
+  else if (path === '/dice') html = pageDice();
   else if (path === '/chef') html = pageChefBoard();
   else if (path === '/chef/summary') html = pageChefSummary();
   else if (path === '/chef/dishes') html = pageChefDishes();
@@ -315,12 +354,15 @@ function renderPreserveScroll() {
 }
 
 function bindPage(path, isRefresh = false) {
+  clearInterval(state.diceTimer);
+  state.diceTimer = null;
   if (path === '/join') bindJoin();
   else if (path === '/menu') bindMenu();
   else if (path.startsWith('/dish/')) bindDish(path.split('/')[2]);
   else if (path.startsWith('/recipe/')) bindRecipe(path.split('/')[2]);
   else if (path === '/orders') bindOrders();
   else if (path === '/review') bindReview();
+  else if (path === '/dice') bindDice();
   else if (path === '/chef') bindChefBoard();
   else if (path === '/chef/summary') bindRefresh();
   else if (path === '/chef/dishes') bindChefDishes();
@@ -328,6 +370,7 @@ function bindPage(path, isRefresh = false) {
   else if (/^\/chef\/dish\/[^/]+$/.test(path)) bindDishEdit(path.split('/')[3]);
   else if (path === '/settings') bindSettings();
   document.querySelectorAll('[data-go-review]').forEach((b) => b.addEventListener('click', () => go('/review')));
+  document.querySelectorAll('[data-go-dice]').forEach((b) => b.addEventListener('click', () => go('/dice')));
   bindNav();
 }
 
@@ -566,6 +609,7 @@ function pageMenu() {
       </button>
     </div>
     ${reviewEntryHtml()}
+    ${diceEntryHtml()}
     <div class="search ${state.menuQuery ? 'filled' : ''}" id="menu-search-wrap">
       <span class="s-icon">${icon('search', 18)}</span>
       <input class="input" id="menu-search" placeholder="搜菜名，比如 番茄" value="${esc(state.menuQuery)}" autocomplete="off">
@@ -1246,6 +1290,279 @@ function reviewEntryHtml() {
     <span class="re-cta">去评价 ${icon('chevron', 15)}</span>
   </button>`;
 }
+
+/* ============ 摇骰子定洗碗人 ============ */
+const DICE_RULES = [
+  { key: 'max_lose', label: '最大的洗碗', emoji: '👆', hint: '点数最大的人今晚洗碗' },
+  { key: 'min_lose', label: '最小的洗碗', emoji: '👇', hint: '点数最小的人今晚洗碗' }
+];
+const diceRuleOf = (key) => DICE_RULES.find((r) => r.key === key) || DICE_RULES[0];
+
+// 3×3 点数网格：纯 CSS 画点，避免加载图片
+const DICE_PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+function dicePips(value) {
+  const on = DICE_PIPS[value] || [];
+  return Array.from({ length: 9 }, (_, i) => `<i class="${on.includes(i) ? 'on' : ''}"></i>`).join('');
+}
+function diceFace(value, cls = '') {
+  return `<span class="dice-face${cls ? ` ${cls}` : ''}">${dicePips(value)}</span>`;
+}
+
+function diceEntryHtml() {
+  if (!state.diceLoaded) return '';
+  const d = state.dice;
+  const g = d?.game;
+  let title = '谁洗碗？摇一摇';
+  let sub = '全家摇一把，输的人今晚洗碗';
+  let cta = '去开局';
+  let art = '🎲';
+  if (g?.status === 'joining') {
+    sub = `${d.participantCount} 人已加入，等人齐了开始`;
+    cta = g.myParticipant ? '去开始' : '去加入';
+  } else if (g?.status === 'rolling') {
+    art = '🎯';
+    sub = g.myRolled
+      ? `已摇 ${d.rolledCount}/${d.participantCount}，等其他人`
+      : `还差 ${Math.max(0, d.participantCount - d.rolledCount)} 人，去摇一把`;
+    cta = g.myRolled ? '去看看' : (g.myParticipant ? '去摇一摇' : '去围观');
+  } else if (g?.status === 'revealed') {
+    const loser = (d.rolls || []).find((r) => r.userId === g.loserId);
+    title = '洗碗人已定';
+    sub = `今晚 ${loser?.nickname || '有人'} 洗碗 · ${g.loserValue ?? ''} 点`;
+    cta = '看结果';
+    art = '🧼';
+  }
+  return `<button class="dice-entry" data-go-dice>
+    <span class="de-dice">${art}</span>
+    <span class="de-text"><b>${title}</b><small>${esc(sub)}</small></span>
+    <span class="de-cta">${cta} ${icon('chevron', 15)}</span>
+  </button>`;
+}
+
+function pageDice() {
+  const d = state.dice;
+  const g = d?.game;
+  let body;
+  if (!state.diceLoaded) {
+    body = `<div class="dice-missing">
+      <div class="dm-emoji">🎲</div>
+      <p>摇骰子还没启用：请先在 Supabase SQL Editor 执行 <code>supabase/dice.sql</code>。</p>
+    </div>`;
+  } else if (!g) body = diceStartHtml();
+  else if (g.status === 'joining') body = diceJoiningHtml(d, g);
+  else if (g.status === 'rolling') body = diceRollingHtml(d, g);
+  else body = diceResultHtml(d, g);
+
+  return `<div class="page">
+    ${pageTopbar({ back: true, title: '谁洗碗？摇一摇' })}
+    <div class="dice-wrap">${body}</div>
+    ${navBar('family')}
+  </div>`;
+}
+
+function diceStartHtml() {
+  return `<div class="dice-hero">
+      <div class="dh-emoji">🎲</div>
+      <h1>谁洗碗？摇一摇</h1>
+      <p>全家一起摇，输的人今晚负责洗碗</p>
+    </div>
+    <div class="dice-rules">
+      ${DICE_RULES.map((r) => `<button class="dice-rule ${state.diceRule === r.key ? 'active' : ''}" data-dice-rule="${r.key}">
+        <span class="dr-emoji">${r.emoji}</span>
+        <span class="dr-text"><b>${r.label}</b><small>${r.hint}</small></span>
+        ${state.diceRule === r.key ? '<span class="dr-check">✓</span>' : ''}
+      </button>`).join('')}
+    </div>
+    <button class="btn" data-dice-create ${state.diceRolling ? 'disabled' : ''}>开一局</button>
+    <p class="fineprint">开局后把手机传给大家，家人点「我也来」加入，人齐了由开局者点「开始摇」。</p>`;
+}
+
+function diceJoiningHtml(d, g) {
+  const rule = diceRuleOf(g.rule);
+  const canStart = g.isCreator && d.participantCount >= 2;
+  return `<div class="dice-head">
+      <div class="dh-rule">${rule.emoji} ${rule.label}</div>
+      <div class="dh-title">人齐了吗？</div>
+      <div class="dh-sub">${d.participantCount} 人已加入，至少 2 人才能开始</div>
+    </div>
+    <div class="dice-players">
+      ${d.participants.map((p) => `<div class="dice-player ${p.isMe ? 'me' : ''}">
+        ${avatarCircle(p, 'sm')}
+        <div class="dp-name">${esc(p.nickname || '家人')}${p.isMe ? '<small>我</small>' : ''}</div>
+        ${g.createdBy === p.userId ? '<span class="dp-tag">开局</span>' : ''}
+      </div>`).join('')}
+    </div>
+    <div class="dice-actions">
+      ${g.myParticipant
+        ? (g.isCreator ? '' : '<button class="btn ghost" data-dice-leave>退出这局</button>')
+        : `<button class="btn" data-dice-join ${state.diceRolling ? 'disabled' : ''}>我也来</button>`}
+      ${g.isCreator ? `<button class="btn" data-dice-start ${canStart && !state.diceRolling ? '' : 'disabled'}>开始摇</button>` : ''}
+    </div>
+    <p class="fineprint">${g.isCreator ? '家人还没到齐？等他们点「我也来」，中途开始后就不能再加人了。' : '等开局者点「开始摇」，之后每人只能摇一次。'}</p>`;
+}
+
+function diceRollingHtml(d, g) {
+  const rule = diceRuleOf(g.rule);
+  const me = d.participants.find((p) => p.isMe);
+  const left = Math.max(0, d.participantCount - d.rolledCount);
+  return `<div class="dice-head">
+      <div class="dh-rule">${rule.emoji} ${rule.label}${g.round > 1 ? ` · 加时第 ${g.round} 轮` : ''}</div>
+      <div class="dh-title">${left > 0 ? `摇一摇！还差 ${left} 人` : '都摇好了，等人揭晓'}</div>
+      <div class="dh-sub">${d.rolledCount}/${d.participantCount} 人已摇 · 揭晓前谁都看不到点数</div>
+      <div class="dice-count" data-dice-count></div>
+    </div>
+    ${me ? `<div class="my-dice">
+      <span class="dice-face big ${g.myRolled ? 'locked' : ''}" id="my-dice-face">${g.myRolled ? '<span class="df-lock">🎲</span>' : dicePips('')}</span>
+      ${g.myRolled
+        ? '<div class="mdb-hint">已摇好，等其他人</div>'
+        : `<button class="btn" data-dice-roll ${state.diceRolling ? 'disabled' : ''}>摇骰子</button>`}
+    </div>` : '<p class="fineprint" style="text-align:center">你在局外，等他们摇完看结果吧。</p>'}
+    <div class="dice-players">
+      ${d.participants.map((p) => `<div class="dice-player ${p.isMe ? 'me' : ''} ${p.rolled ? 'rolled' : ''}">
+        ${avatarCircle(p, 'sm')}
+        <div class="dp-name">${esc(p.nickname || '家人')}${p.isMe ? '<small>我</small>' : ''}</div>
+        <span class="dp-state">${p.rolled ? '🎲 已摇' : '○ 未摇'}</span>
+      </div>`).join('')}
+    </div>
+    ${g.isCreator ? `<button class="btn ghost" data-dice-force ${left > 0 && !diceCountExpired(g) ? 'disabled' : ''}>强制揭晓（未摇者弃权）</button>` : ''}
+    <p class="fineprint">${g.isCreator ? '60 秒还没摇完，可以强制揭晓；没摇的人这一轮算弃权。' : '等大家摇完，或者开局者强制揭晓。'}</p>`;
+}
+
+function diceCountExpired(g) {
+  const t = g?.startedAt ? new Date(g.startedAt).getTime() : 0;
+  return !!t && Date.now() - t > 60_000;
+}
+
+function diceResultHtml(d, g) {
+  const rule = diceRuleOf(g.rule);
+  const rolls = d.rolls || [];
+  const loser = rolls.find((r) => r.userId === g.loserId);
+  const animate = state.diceRevealId !== g.id;
+  if (animate) state.diceRevealId = g.id;
+  return `<div class="dice-result ${animate ? 'anim' : ''}">
+    <div class="dr-title">揭晓！</div>
+    <div class="dr-sub">${rule.emoji} ${rule.label}${g.round > 1 ? ` · 加时第 ${g.round} 轮` : ''}</div>
+    <div class="dice-row">
+      ${rolls.map((r, i) => `<div class="dice-cell ${r.userId === g.loserId ? 'loser' : ''}" style="--i:${i}">
+        ${diceFace(r.value)}
+        <div class="dc-name">${esc(r.nickname || '家人')}</div>
+        <div class="dc-val">${r.value} 点</div>
+      </div>`).join('')}
+    </div>
+    <div class="dice-loser-card">
+      <div class="dlc-label">今晚洗碗</div>
+      <div class="dlc-name">${esc(loser?.nickname || '…')} 🧼</div>
+      <div class="dlc-sub">${rule.label === '最大的洗碗' ? '最大' : '最小'}的 ${g.loserValue ?? ''} 点</div>
+    </div>
+    <div class="dice-actions">
+      <button class="btn" data-dice-again ${state.diceRolling ? 'disabled' : ''}>再来一局</button>
+      <a class="btn ghost" href="#/menu">回菜单</a>
+    </div>
+    <p class="fineprint">愿赌服输，洗完了让家人给你点个好评。</p>
+  </div>`;
+}
+
+/* 统一包一层：防重复点击 + 成功后重读骰子状态并刷新页面 */
+async function diceAction(fn, successMsg) {
+  if (state.diceRolling) return;
+  state.diceRolling = true;
+  try {
+    await fn();
+    await loadDice(true);
+    if (successMsg) toast(successMsg, { type: 'success', duration: 1600 });
+  } catch (err) {
+    toast(err.message || '操作没成功，再试一次', { duration: 3200 });
+  } finally {
+    state.diceRolling = false;
+    renderPreserveScroll();
+  }
+}
+
+// 摇骰子：先本地翻滚 1.2s，再提交服务端点数（点数由数据库 random() 生成）
+async function doMyRoll() {
+  if (state.diceRolling) return;
+  const g = state.dice?.game;
+  if (!g) return;
+  state.diceRolling = true;
+  const face = document.getElementById('my-dice-face');
+  const flicker = face ? setInterval(() => {
+    face.innerHTML = dicePips(1 + Math.floor(Math.random() * 6));
+  }, 80) : null;
+  face?.classList.add('rolling');
+  haptic(10);
+  beep('soft');
+  await new Promise((r) => setTimeout(r, 1200));
+  clearInterval(flicker);
+  try {
+    await state.store.rollDice(g.id);
+    haptic(20);
+    await loadDice(true);
+  } catch (err) {
+    toast(err.message || '摇骰子没成功，再摇一次', { duration: 3000 });
+  } finally {
+    state.diceRolling = false;
+    renderPreserveScroll();
+  }
+}
+
+function startDiceCountdown() {
+  const el = document.querySelector('[data-dice-count]');
+  if (!el) return;
+  const started = state.dice?.game?.startedAt;
+  if (!started) { el.textContent = ''; return; }
+  const deadline = new Date(started).getTime() + 60_000;
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    el.textContent = left > 0 ? `60 秒倒计时 · 还剩 ${left}s` : '已经超时，可以强制揭晓了';
+    el.classList.toggle('expired', left <= 0);
+    if (left <= 0) document.querySelectorAll('[data-dice-force]').forEach((b) => b.removeAttribute('disabled'));
+  };
+  tick();
+  state.diceTimer = setInterval(tick, 1000);
+}
+
+function bindDice() {
+  bindBack();
+  const g = state.dice?.game;
+
+  document.querySelectorAll('[data-dice-rule]').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.diceRule = b.dataset.diceRule;
+      renderPreserveScroll();
+    });
+  });
+
+  document.querySelector('[data-dice-create]')?.addEventListener('click', () => {
+    state.diceRevealId = '';
+    diceAction(() => state.store.createDiceGame(state.diceRule), '开局了，叫家人来加入');
+  });
+
+  document.querySelector('[data-dice-join]')?.addEventListener('click', () => {
+    diceAction(() => state.store.joinDiceGame(g?.id), '已加入这局');
+  });
+
+  document.querySelector('[data-dice-leave]')?.addEventListener('click', () => {
+    diceAction(() => state.store.leaveDiceGame(g?.id), '已退出');
+  });
+
+  document.querySelector('[data-dice-start]')?.addEventListener('click', () => {
+    diceAction(() => state.store.startDiceGame(g?.id), '开始摇！');
+  });
+
+  document.querySelector('[data-dice-force]')?.addEventListener('click', () => {
+    diceAction(async () => { await state.store.revealDice(g?.id); }, '已揭晓');
+  });
+
+  document.querySelector('[data-dice-again]')?.addEventListener('click', () => {
+    state.diceRevealId = '';
+    diceAction(() => state.store.createDiceGame(g?.rule || state.diceRule), '新的一局，来摇吧');
+  });
+
+  document.querySelector('[data-dice-roll]')?.addEventListener('click', doMyRoll);
+
+  if (g?.status === 'rolling') startDiceCountdown();
+}
+
 
 function reviewDraft() {
   const rc = state.reviewContext;

@@ -394,6 +394,59 @@ export class CloudStore {
     this.session.pushKey = key;
   }
 
+  /* ---------- 摇骰子定洗碗人 ---------- */
+  // dice.sql 未执行时返回 null，入口自动隐藏，不影响其他功能
+  async diceContext() {
+    const fid = this.getCurrentFamilyId();
+    if (!fid) return null;
+    const { data, error } = await this.client.rpc('dice_context', { p_family_id: fid });
+    if (error) {
+      if (/could not find the function|does not exist|PGRST202/i.test(error.message || '')) return null;
+      throw friendly(error);
+    }
+    if (!this._diceReady) {
+      this._diceReady = true;
+      this._resubscribe();
+    }
+    return data;
+  }
+
+  async createDiceGame(rule) {
+    const { data, error } = await this.client.rpc('create_dice_game', {
+      p_family_id: this.getCurrentFamilyId(),
+      p_rule: rule || 'max_lose'
+    });
+    if (error) throw friendly(error);
+    return data;
+  }
+
+  async joinDiceGame(id) {
+    const { error } = await this.client.rpc('join_dice_game', { p_game_id: id });
+    if (error) throw friendly(error);
+  }
+
+  async leaveDiceGame(id) {
+    const { error } = await this.client.rpc('leave_dice_game', { p_game_id: id });
+    if (error) throw friendly(error);
+  }
+
+  async startDiceGame(id) {
+    const { error } = await this.client.rpc('start_dice_game', { p_game_id: id });
+    if (error) throw friendly(error);
+  }
+
+  async rollDice(id) {
+    const { data, error } = await this.client.rpc('roll_dice', { p_game_id: id });
+    if (error) throw friendly(error);
+    return data;
+  }
+
+  async revealDice(id) {
+    const { data, error } = await this.client.rpc('force_reveal_dice', { p_game_id: id });
+    if (error) throw friendly(error);
+    return data;
+  }
+
   /* ---------- 菜品 ---------- */
   async listDishes() {
     const { data, error } = await this.client
@@ -615,6 +668,10 @@ export class CloudStore {
       try { this.client.removeChannel(this._reviewChannel); } catch (_) { /* ignore */ }
       this._reviewChannel = null;
     }
+    if (this._diceChannel) {
+      try { this.client.removeChannel(this._diceChannel); } catch (_) { /* ignore */ }
+      this._diceChannel = null;
+    }
     const familyId = this.session?.currentFamilyId;
     if (!familyId || this._listeners.size === 0) return;
     this._channel = this.client
@@ -627,6 +684,13 @@ export class CloudStore {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'review', filter: `family_id=eq.${familyId}` }, () => this._emit('reviews'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_feedback', filter: `family_id=eq.${familyId}` }, () => this._emit('reviews'))
       .subscribe();
+    // 骰子局只在 dice.sql 已执行后才订阅，避免表不存在时刷控制台错误
+    if (this._diceReady) {
+      this._diceChannel = this.client
+        .channel(`dice-${familyId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'dice_game', filter: `family_id=eq.${familyId}` }, () => this._emit('dice'))
+        .subscribe();
+    }
   }
 
   subscribe(fn) {

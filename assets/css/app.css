@@ -1802,3 +1802,192 @@ a[href*='netlify'] { display: none !important; }
 .chef-review .cr-avg small { font-size: 12px; font-weight: 400; color: var(--muted); }
 .chef-review .cr-meta { font-size: 12px; color: var(--muted); }
 
+
+/* ============ 摇骰子定洗碗人 ============ */
+.dice-entry {
+  width: calc(100% - 36px);
+  margin: 0 18px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 1px solid #d9e3da;
+  border-radius: 16px;
+  background: linear-gradient(120deg, #f7fbf8 0%, #eef5f0 100%);
+  color: var(--ink);
+  text-align: left;
+}
+.dice-entry:active { transform: scale(.985); }
+.dice-entry .de-dice {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  font-size: 21px;
+  background: #fff;
+  border: 1px solid #e2ded5;
+}
+.dice-entry .de-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dice-entry .de-text b { font-size: 14.5px; font-weight: 600; }
+.dice-entry .de-text small { font-size: 11.5px; color: var(--ink-2); opacity: .75; }
+.dice-entry .de-cta {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--green);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dice-wrap { padding: 8px 20px 34px; }
+
+.dice-hero { text-align: center; padding: 16px 0 20px; }
+.dice-hero .dh-emoji { font-size: 44px; line-height: 1; margin-bottom: 12px; animation: dicePop .5s cubic-bezier(.2, .8, .3, 1) both; }
+@keyframes dicePop {
+  from { opacity: 0; transform: translateY(8px) scale(.6) rotate(-14deg); }
+  to { opacity: 1; transform: none; }
+}
+.dice-hero h1 { margin: 0 0 7px; font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.dice-hero p { font-size: 12.5px; color: var(--muted); }
+
+.dice-rules { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.dice-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 15px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+.dice-rule.active { border-color: var(--green); background: var(--green-soft); }
+.dice-rule .dr-emoji { font-size: 20px; flex: 0 0 auto; }
+.dice-rule .dr-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dice-rule .dr-text b { font-size: 14.5px; font-weight: 600; }
+.dice-rule .dr-text small { font-size: 11.5px; color: var(--muted); }
+.dice-rule .dr-check { color: var(--green); font-size: 16px; font-weight: 700; }
+
+.dice-head { text-align: center; padding: 12px 0 18px; }
+.dice-head .dh-rule {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.dice-head .dh-title { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+.dice-head .dh-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.dice-count { margin-top: 8px; font-size: 12.5px; font-weight: 600; color: var(--amber); font-variant-numeric: tabular-nums; }
+.dice-count.expired { color: var(--accent); }
+
+.dice-players { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.dice-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+}
+.dice-player.me { border-color: var(--line-strong); background: #fffdf8; }
+.dice-player .dp-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.dice-player .dp-name small {
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 4px;
+}
+.dice-player .dp-tag { font-size: 10.5px; color: var(--accent); background: var(--accent-soft); padding: 2px 7px; border-radius: 999px; }
+.dice-player .dp-state { font-size: 11.5px; color: var(--muted); }
+.dice-player.rolled .dp-state { color: var(--green); }
+
+.dice-actions { display: flex; gap: 10px; margin-bottom: 6px; }
+.dice-actions .btn { flex: 1; }
+
+.my-dice { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 2px 0 20px; }
+.my-dice .btn { min-width: 180px; }
+.mdb-hint { font-size: 12px; color: var(--green); }
+
+.dice-face {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 4px;
+  width: 52px;
+  height: 52px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 2px 6px rgba(70, 50, 30, .08);
+}
+.dice-face i { width: 100%; height: 100%; border-radius: 50%; background: transparent; }
+.dice-face i.on { background: var(--ink); }
+.dice-face.big { width: 104px; height: 104px; padding: 14px; gap: 7px; border-radius: 20px; }
+.dice-face.locked { display: flex; align-items: center; justify-content: center; font-size: 40px; }
+.dice-face.rolling { animation: diceShake .18s linear infinite; }
+@keyframes diceShake {
+  0% { transform: rotate(-4deg) translateY(-2px); }
+  50% { transform: rotate(5deg) translateY(2px); }
+  100% { transform: rotate(-4deg) translateY(-2px); }
+}
+
+.dice-result { padding-top: 10px; text-align: center; }
+.dice-result .dr-title { font-size: 24px; font-weight: 700; letter-spacing: .02em; }
+.dice-result .dr-sub { margin-top: 5px; font-size: 12px; color: var(--muted); }
+.dice-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 18px 0 18px; }
+.dice-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 8px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+}
+.dice-cell.loser { background: #fff8ef; border-color: #f0dcc9; }
+.dice-cell.loser .dice-face { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.dice-cell .dc-name {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.dice-cell .dc-val { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dice-result.anim .dice-cell { animation: diceFlip .55s cubic-bezier(.2, .7, .3, 1.2) both; animation-delay: calc(var(--i) * 90ms + 80ms); }
+@keyframes diceFlip {
+  from { opacity: 0; transform: rotateX(80deg) scale(.7); }
+  to { opacity: 1; transform: none; }
+}
+
+.dice-loser-card {
+  margin: 0 0 18px;
+  padding: 20px 18px;
+  border: 1px solid #f0dcc9;
+  border-radius: 18px;
+  background: linear-gradient(120deg, #fff8f1 0%, #fdf1e6 100%);
+}
+.dice-loser-card .dlc-label { font-size: 12px; color: var(--muted); }
+.dice-loser-card .dlc-name { margin: 6px 0 4px; font-size: 26px; font-weight: 700; color: var(--accent); }
+.dice-loser-card .dlc-sub { font-size: 12px; color: var(--ink-2); }
+
+.dice-missing { text-align: center; padding: 60px 20px; font-size: 13px; line-height: 1.7; color: var(--muted); }
+.dice-missing .dm-emoji { font-size: 40px; margin-bottom: 12px; }
+.dice-missing code { font-size: 12px; background: var(--paper-2); padding: 2px 6px; border-radius: 6px; }
