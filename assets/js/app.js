@@ -290,13 +290,6 @@ function pageJoin() {
           <span class="label">你的昵称</span>
           <input class="input" name="nickname" id="join-name" placeholder="例如 妈妈" maxlength="12" autocomplete="off">
         </label>
-        <div class="field">
-          <span class="label">这次是谁在用</span>
-          <div class="seg" id="join-role">
-            <button type="button" data-role="0" class="active">我来点菜</button>
-            <button type="button" data-role="1">我掌勺</button>
-          </div>
-        </div>
         <div class="form-error" id="join-error"></div>
         <button class="btn" type="submit">进入家宴</button>
         <button class="btn ghost" type="button" id="join-register" style="margin-top:10px">一键开店 · 我是厨师</button>
@@ -306,20 +299,15 @@ function pageJoin() {
         <button class="link-btn" id="mode-demo">先用演示数据逛逛</button>
         <button class="link-btn" id="connect-cloud">${cloudReady ? '连接设置' : '连接 Supabase'}</button>
       </div>
-      <p class="fineprint">${isCloud ? '点菜会实时出现在厨师手机上，厨师也能收到微信提醒（需配置推送）。' : '演示模式里已有妈妈、爸爸的点单，可以切换成「我掌勺」体验按菜汇总。'}</p>
+      <p class="fineprint">${isCloud ? '点菜会实时出现在厨师手机上，厨师也能收到微信提醒（需配置推送）。' : '演示模式里已有妈妈、爸爸的点单，可以直接体验点菜和按菜汇总。'}</p>
     </div>
   </div>`;
 }
 
 function bindJoin() {
-  let role = 0;
-  document.querySelectorAll('#join-role button').forEach((b) => {
-    b.addEventListener('click', () => {
-      document.querySelectorAll('#join-role button').forEach((x) => x.classList.remove('active'));
-      b.classList.add('active');
-      role = Number(b.dataset.role);
-    });
-  });
+  // 角色选择已移除：用家庭码进来的都是点菜的家人，
+  // 想当厨师走「一键开店 · 我是厨师」
+  const role = 0;
 
   const showError = (msg) => {
     const el = document.getElementById('join-error');
