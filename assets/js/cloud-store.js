@@ -78,6 +78,14 @@ const mapOrder = (r) => ({
   }))
 });
 
+/* 家庭码：6 位，去掉易混淆的 0/O/1/I，客户端本地生成，撞码时重试 */
+function genJoinCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let c = '';
+  for (let i = 0; i < 6; i++) c += chars[Math.floor(Math.random() * chars.length)];
+  return c;
+}
+
 function friendly(error) {
   const raw = String(error?.message || error || '未知错误');
   if (/anonymous.*disabled/i.test(raw)) {
@@ -213,14 +221,23 @@ export class CloudStore {
   async createFamily({ name, nickname }) {
     const famName = (name || '我家').trim().slice(0, 16);
     const nick = (nickname || '主厨').trim().slice(0, 12);
-    const { data: code, error: cErr } = await this.client.rpc('generate_join_code');
-    if (cErr) throw friendly(cErr);
-    // 注意：create_family 只有 p_name / p_join_code 两个参数，
-    // 多传 p_nickname 会被 PostgREST 判为函数不存在（404）
-    const { data: familyId, error } = await this.client.rpc('create_family', {
-      p_name: famName,
-      p_join_code: code
-    });
+    // 6 位家庭码本地生成；撞码（唯一约束冲突）时换码重试，最多 5 次
+    let code = '';
+    let familyId = null;
+    let error = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      code = genJoinCode();
+      // 注意：create_family 只有 p_name / p_join_code 两个参数，
+      // 多传 p_nickname 会被 PostgREST 判为函数不存在（404）
+      const res = await this.client.rpc('create_family', {
+        p_name: famName,
+        p_join_code: code
+      });
+      familyId = res.data;
+      error = res.error;
+      if (!error) break;
+      if (!/duplicate|unique/i.test(error.message || '')) throw friendly(error);
+    }
     if (error) throw friendly(error);
     // create_family 里昵称先写成家庭名，这里改成本人昵称
     if (familyId && nick) {

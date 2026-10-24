@@ -299,8 +299,7 @@ function pageJoin() {
         <p class="fineprint" style="margin-top:8px">没有家庭码？点「一键开店」直接给自己开一个厨房，进去后把家庭码发给家人。</p>
       </form>
       <div class="join-foot">
-        <button class="link-btn" id="mode-demo">先用演示数据逛逛</button>
-        <button class="link-btn" id="connect-cloud">${cloudReady ? '连接设置' : '连接 Supabase'}</button>
+        <button class="link-btn" id="connect-cloud" style="margin-left:auto">${cloudReady ? '连接设置' : '连接 Supabase'}</button>
       </div>
       <p class="fineprint">${isCloud ? '点菜会实时出现在厨师手机上，厨师也能收到微信提醒（需配置推送）。' : '演示模式里已有妈妈、爸爸的点单，可以直接体验点菜和按菜汇总。'}</p>
     </div>
@@ -342,28 +341,6 @@ function bindJoin() {
       btn.disabled = false;
       btn.textContent = '进入家宴';
     }
-  });
-
-  document.getElementById('mode-demo').addEventListener('click', async () => {
-    try {
-    if (state.mode !== 'demo') {
-      state.store = demoStore;
-      state.mode = 'demo';
-      localStorage.setItem('fm_mode', 'demo');
-    }
-    // 演示模式默认以厨师身份进入，预置的 3 个家庭会自动挂载
-    const nickname = document.getElementById('join-name').value.trim() || '主厨小王';
-    await demoStore.joinFamily({ code: 'HOME77', nickname, role: 1 });
-    await demoStore.joinFamily({ code: 'HOME88', nickname, role: 1 });
-    await demoStore.joinFamily({ code: 'HOME99', nickname, role: 1 });
-    state.session = await demoStore.switchFamily('fam-home77');
-    state.cart = loadCart();
-    await refreshData(true);
-    console.log('[demo] session:', JSON.stringify(state.session?.families?.map(f=>({fid:f.familyId,role:f.role}))));
-    console.log('[demo] current:', state.session?.currentFamilyId, 'go to /chef');
-    toast('演示模式：你是「主厨小王」', { type: 'success', duration: 2000 });
-    go('/chef');
-    } catch (err) { console.error('[demo click]', err); toast(err.message || '进入演示模式失败', { duration: 4000 }); }
   });
 
   document.getElementById('join-register')?.addEventListener('click', async (e) => {
@@ -431,7 +408,6 @@ function dishGridHtml() {
       <h3>${esc(d.name)}</h3>
       <div class="meta">
         <span>${icon('clock', 12)}</span><span>${d.cookMinutes || 0} 分钟</span>
-        <span class="sep">·</span><span>${d.servings} 人份</span>
       </div>
     </a>`; }).join('')}</div>`;
 }

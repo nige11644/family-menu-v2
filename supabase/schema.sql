@@ -623,7 +623,7 @@ declare
   v_code text := '';
   i int;
 begin
-  for i in 1..8 loop
+  for i in 1..6 loop
     v_code := v_code || substr(v_chars, 1 + floor(random() * length(v_chars))::int, 1);
   end loop;
   return v_code;
