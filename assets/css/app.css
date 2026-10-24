@@ -55,6 +55,8 @@ p { margin: 0; }
   min-height: 100dvh;
   background: var(--paper);
   overflow-x: hidden;
+  /* clip 不创建滚动容器，避免 iOS 上 sticky 顶栏命中区域错乱；老浏览器回退到上一行 hidden */
+  overflow-x: clip;
 }
 
 /* ---------- 启动占位 ---------- */
@@ -79,14 +81,16 @@ p { margin: 0; }
 .page {
   min-height: 100dvh;
   padding-bottom: calc(104px + var(--safe-b));
-  animation: pageIn .3s cubic-bezier(.2, .75, .3, 1) both;
+  /* 用 backwards：动画播完不残留 transform，否则内部 fixed 元素（底部导航/购物车条）会相对页面定位而不是视口，且 iOS 上 sticky 顶栏按钮会点不中 */
+  animation: pageIn .3s cubic-bezier(.2, .75, .3, 1) backwards;
 }
 .page.plain { padding-bottom: calc(28px + var(--safe-b)); }
 .page.no-nav { padding-bottom: calc(30px + var(--safe-b)); }
 
 @keyframes pageIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  /* 只淡入、不做位移：transform 一旦残留会让 fixed 后代（底部导航/购物车条）错位、iOS 顶栏按钮点不中 */
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ---------- 顶栏 ---------- */

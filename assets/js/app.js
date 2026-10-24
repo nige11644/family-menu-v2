@@ -130,7 +130,10 @@ function showNewOrderBanner(order) {
 
 /* ============ 路由 ============ */
 function currentPath() {
-  return location.hash.replace(/^#/, '') || '/';
+  const p = location.hash.replace(/^#/, '');
+  // 从微信/桌面图标直接打开根路径（无 hash）时按菜单页处理，
+  // 否则 render() 会渲染菜单但 bindPage('/') 匹配不上 '/menu'，整页按钮都点不了
+  return p && p !== '/' ? p : '/menu';
 }
 
 function render() {
