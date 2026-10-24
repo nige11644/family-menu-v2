@@ -140,6 +140,54 @@ async function boot() {
   state.presenceIds = state.store.presenceIds?.() || new Set();
   startMemberHeartbeat();
   registerSW();
+  maybePromptInviteLink();
+}
+
+// 已经在某个家庭时打开邀请链接：询问是否要切过去
+async function maybePromptInviteLink() {
+  let code = '';
+  try {
+    code = (new URLSearchParams(location.search).get('code') || '').trim().toUpperCase();
+  } catch (_) { return; }
+  if (!code) return;
+  // 还没进家庭的人会走加入页，那里已经自动填好家庭码
+  if (!state.session || !state.currentFamily) return;
+  if ((state.currentFamily.joinCode || '').toUpperCase() === code) return;
+
+  // 处理过就把参数去掉，避免手动刷新时反复弹
+  try {
+    const url = new URL(location.href);
+    url.searchParams.delete('code');
+    history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch (_) { /* 忽略无法改写的地址 */ }
+
+  const known = state.families.find((f) => ((f.joinCode || f.family?.joinCode) || '').toUpperCase() === code);
+  const targetName = known?.family?.name || known?.familyName || '';
+  const ok = await confirmSheet({
+    title: '收到一个家宴邀请',
+    message: targetName
+      ? `你已经加入过「${targetName}」。要切换过去吗？`
+      : `你正在「${state.currentFamily.name || '当前家庭'}」。要加入家庭码 ${code} 的家宴吗？加入后可以在左上角随时切回来。`,
+    confirmText: targetName ? '切换过去' : '加入新家庭'
+  });
+  if (!ok) return;
+
+  try {
+    if (known) {
+      await state.store.switchFamily(known.familyId);
+    } else {
+      await state.store.joinFamily({ code, nickname: state.session?.nickname || '家人', role: 0 });
+    }
+    localStorage.removeItem('fm_view_mode');
+    state.cart = loadCart();
+    state.cartNote = '';
+    await refreshData(true);
+    go('/menu');
+    renderPreserveScroll();   // 已经在菜单页时 hash 不变，需要主动重绘
+    toast(targetName ? '已切换家庭' : '已加入新家庭', { type: 'success' });
+  } catch (err) {
+    toast(err.message || '加入失败，检查一下家庭码', { type: 'error' });
+  }
 }
 
 // 低频心跳：每 60 秒（仅前台）更新一次最后活跃时间，断网/关页面由 Presence 负责
