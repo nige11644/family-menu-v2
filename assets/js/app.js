@@ -1,7 +1,7 @@
 import { demoStore } from './demo-store.js';
 import { CloudStore, readSupabaseConfig, saveSupabaseConfig, testConnection } from './cloud-store.js';
 import { CATEGORIES } from './seed.js';
-import { isWeChat, initWxShare, setWxShare, wxShareReady } from './wx-share.js';
+import { isWeChat, initWxShare, isMiniProgram, postMiniProgramShare, setWxShare, wxShareReady } from './wx-share.js';
 import {
   esc, icon, toast, beep, haptic, openSheet, confirmSheet,
   fmtTime, fmtDate, timeAgo, isToday, statusMeta, debounce, go
@@ -148,7 +148,7 @@ async function boot() {
 async function setupWxShare() {
   if (!isWeChat()) return;
   const ok = await initWxShare();
-  if (!ok) return;
+  if (!ok || isMiniProgram()) return;   // 小程序壳的转发卡片由小程序自己设置
   const s = inviteShareData();
   setWxShare({ title: s.title, desc: s.desc, link: s.link });
 }
@@ -2528,8 +2528,10 @@ async function copyText(text) {
 function openInviteSheet() {
   const s = inviteShareData();
   if (!s.code) return toast('还没有家庭码，先在设置里看看家庭');
-  const wx = wxShareReady();
-  // 微信内：把分享卡片切成本次邀请内容，用户点右上角「···」发的就是它
+  const miniEnv = isMiniProgram();
+  const wx = !miniEnv && wxShareReady();
+  // 小程序壳：把家庭码交给小程序页面；公众号 H5：把卡片切成本次邀请内容
+  if (miniEnv) postMiniProgramShare({ code: s.code, name: s.name });
   if (wx) setWxShare({ title: s.title, desc: s.desc, link: s.link });
 
   const { sheet, close } = openSheet({
@@ -2540,15 +2542,22 @@ function openInviteSheet() {
         <div class="invite-code">${esc(s.code)}</div>
         <div class="invite-fam">${esc(s.name)}</div>
       </div>
-      <button class="btn" id="invite-share" style="width:100%">${wx ? '📤 去微信分享' : '📤 分享给家人'}</button>
+      <button class="btn" id="invite-share" style="width:100%">${miniEnv ? '📤 去右上角转发' : (wx ? '📤 去微信分享' : '📤 分享给家人')}</button>
       <button class="btn ghost" id="invite-copy" style="width:100%;margin-top:8px">复制邀请文案</button>
-      <p class="invite-tip">${wx
-        ? `分享卡片已带上「${esc(s.title)}」和家庭码，点右上角「···」→ 发送给朋友，或转发到家庭群。`
-        : '在微信里如果没弹出分享面板，点右上角「···」→ 发送给朋友，或直接用「复制邀请文案」粘贴到家庭群。'}</p>`,
+      <p class="invite-tip">${miniEnv
+        ? '转发卡片已经准备好：点右上角「···」→ 转发给家人，对方打开就能直接点菜。'
+        : (wx
+          ? `分享卡片已带上「${esc(s.title)}」和家庭码，点右上角「···」→ 发送给朋友，或转发到家庭群。`
+          : '在微信里如果没弹出分享面板，点右上角「···」→ 发送给朋友，或直接用「复制邀请文案」粘贴到家庭群。')}</p>`,
     footer: `<button class="btn ghost" data-sheet-close>关闭</button>`
   });
 
   sheet.querySelector('#invite-share')?.addEventListener('click', async () => {
+    if (miniEnv) {
+      postMiniProgramShare({ code: s.code, name: s.name });
+      toast('点右上角「···」→ 转发给家人，卡片会带上家庭码', { duration: 4000 });
+      return;
+    }
     if (wx) {
       toast('分享卡片已准备好，点右上角「···」发送给朋友', { duration: 4000 });
       return;

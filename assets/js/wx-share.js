@@ -12,10 +12,11 @@
  */
 import { readSupabaseConfig } from './cloud-store.js';
 
-const WX_APP_ID = ''; // ← 公众号 AppID（公开信息，可写在这里）
+const WX_APP_ID = ''; // ← 公众号 AppID（公开信息，可写在这里；小程序壳方案不需要）
 
 let ready = false;
 let loading = null;
+let mini = false;
 
 export function isWeChat() {
   return /MicroMessenger/i.test(navigator.userAgent || '');
@@ -23,6 +24,23 @@ export function isWeChat() {
 
 export function wxShareReady() {
   return ready;
+}
+
+/** 是否运行在小程序 web-view 里（由微信注入的 __wxjs_environment 判断） */
+export function isMiniProgram() {
+  return mini;
+}
+
+/** 小程序壳：把家庭码交给小程序页面，转发卡片就能带上 */
+export function postMiniProgramShare({ code, name }) {
+  if (!mini) return false;
+  try {
+    window.wx.miniProgram.postMessage({ data: { code, name } });
+    return true;
+  } catch (err) {
+    console.warn('[wx-share]', err);
+    return false;
+  }
 }
 
 export function shareCoverUrl() {
@@ -40,17 +58,23 @@ function loadSdk() {
   });
 }
 
-/** 拉签名并完成 wx.config；返回是否可用 */
+/** 微信环境初始化：小程序壳只加载 SDK，公众号才继续拉签名 */
 export function initWxShare() {
-  if (!isWeChat() || !WX_APP_ID) return Promise.resolve(false);
-  if (ready) return Promise.resolve(true);
+  if (!isWeChat()) return Promise.resolve(false);
+  if (ready || mini) return Promise.resolve(true);
   if (loading) return loading;
 
   loading = (async () => {
+    await loadSdk();
+    // 小程序 web-view 环境：不需要 wx.config，只需要 wx.miniProgram
+    if (window.__wxjs_environment === 'miniprogram' || /miniProgram/i.test(navigator.userAgent || '')) {
+      mini = true;
+      return true;
+    }
+    if (!WX_APP_ID) return false;
+
     const { url, key } = readSupabaseConfig();
     if (!url) return false;
-
-    await loadSdk();
 
     // 签名用的 URL 必须与当前页面一致，且不含 #hash
     const pageUrl = location.href.split('#')[0];
