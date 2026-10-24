@@ -145,6 +145,44 @@ p { margin: 0; }
   white-space: nowrap;
 }
 .view-chip:active { background: var(--paper-2); }
+.invite-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 18px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.invite-btn:active { background: var(--accent-soft); }
+.invite-card {
+  padding: 18px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  text-align: center;
+}
+.invite-label { font-size: 12px; color: var(--ink-2); letter-spacing: .08em; }
+.invite-code {
+  margin-top: 6px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  color: var(--accent-dark);
+  font-variant-numeric: tabular-nums;
+}
+.invite-fam { margin-top: 4px; font-size: 12.5px; color: var(--ink-2); }
+.invite-tip {
+  margin: 12px 2px 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
 .icon-btn.on-image {
   background: rgba(255, 253, 249, .88);
   backdrop-filter: blur(10px);

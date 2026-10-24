@@ -637,6 +637,15 @@ function bindJoin() {
   // 想当厨师走「一键开店 · 我是厨师」
   const role = 0;
 
+  // 邀请链接带 ?code= 时自动填好家庭码
+  try {
+    const inviteCode = new URLSearchParams(location.search).get('code');
+    const codeInput = document.getElementById('join-code');
+    if (inviteCode && codeInput && !codeInput.value) {
+      codeInput.value = inviteCode.toUpperCase().slice(0, 12);
+    }
+  } catch (_) { /* 忽略无法解析的链接 */ }
+
   const showError = (msg) => {
     const el = document.getElementById('join-error');
     el.textContent = msg;
@@ -2284,6 +2293,7 @@ function pageChefBoard() {
         <h1 class="chef-title">${active.length} 道菜等你 · <span class="n">${pendingCount}</span> 份</h1>
         <div class="live-dot"><i></i>${state.mode === 'cloud' ? '实时连接中' : '演示模式'}</div>
       </div>
+      <button class="invite-btn" data-invite>${icon('users', 16)} 邀请家人</button>
     </div>
     ${mealStateHtml()}
     <div class="chef-switch">
@@ -2316,6 +2326,9 @@ function bindChefBoard() {
 
   // 家庭切换器
   document.querySelector('[data-fam-pick]')?.addEventListener('click', openFamilyPicker);
+
+  // 邀请家人（手机可调起系统分享面板，含微信）
+  document.querySelector('[data-invite]')?.addEventListener('click', openInviteSheet);
 
   // 关席 / 重新开席（好评开关）
   document.querySelector('[data-close-meal]')?.addEventListener('click', async () => {
@@ -2457,6 +2470,73 @@ function pageChefMembers() {
     ${body}
     ${navBar('chef')}
   </div>`;
+}
+
+// 复制文本：微信内置浏览器没有 navigator.clipboard，回退到 execCommand
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_) { /* 走下面的回退 */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const done = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return done;
+  } catch (_) { return false; }
+}
+
+// 邀请家人：系统分享面板（微信/QQ/短信），不支持的浏览器回退到复制文案
+function openInviteSheet() {
+  const fam = state.currentFamily;
+  const code = fam?.joinCode || '';
+  const name = fam?.name || '家宴';
+  if (!code) return toast('还没有家庭码，先在设置里看看家庭');
+  const url = `${location.origin}${location.pathname}?code=${encodeURIComponent(code)}`;
+  const text = `来「${name}」点菜啦！\n家庭码：${code}\n点开链接填码就能点：${url}`;
+
+  const { sheet, close } = openSheet({
+    title: '邀请家人来点菜',
+    sub: '家人填一次家庭码和昵称，以后直接进',
+    body: `<div class="invite-card">
+        <div class="invite-label">家庭码</div>
+        <div class="invite-code">${esc(code)}</div>
+        <div class="invite-fam">${esc(name)}</div>
+      </div>
+      <button class="btn" id="invite-share" style="width:100%">📤 分享给家人</button>
+      <button class="btn ghost" id="invite-copy" style="width:100%;margin-top:8px">复制邀请文案</button>
+      <p class="invite-tip">在微信里如果没弹出分享面板，点右上角「···」→ 发送给朋友，或直接用「复制邀请文案」粘贴到家庭群。</p>`,
+    footer: `<button class="btn ghost" data-sheet-close>关闭</button>`
+  });
+
+  const sharePayload = { title: `一起用「${name}」点菜`, text, url };
+  sheet.querySelector('#invite-share')?.addEventListener('click', async () => {
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share(sharePayload);
+        haptic(10);
+        close();
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;   // 用户自己取消
+      }
+    }
+    const copied = await copyText(text);
+    toast(copied ? '已复制邀请，去微信粘贴给家人吧' : `家庭码：${code}`, { duration: 3200 });
+  });
+
+  sheet.querySelector('#invite-copy')?.addEventListener('click', async () => {
+    const copied = await copyText(text);
+    toast(copied ? '邀请文案已复制' : `家庭码：${code}`, { type: copied ? 'success' : undefined, duration: 2400 });
+  });
 }
 
 function openAliasSheet(m) {
