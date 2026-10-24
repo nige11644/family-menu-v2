@@ -1402,6 +1402,7 @@ function pageDishEdit(id) {
     </form>
     <div class="form-actions">
       ${isNew ? '' : `<button class="btn ghost" id="edit-recipe">编辑做法</button>`}
+      ${isNew ? '' : `<button class="btn plain" id="delete-dish" style="color:var(--accent)">删除这道菜</button>`}
     </div>
   </div>`;
 }
@@ -1442,6 +1443,26 @@ function bindDishEdit(id) {
   });
 
   document.getElementById('edit-recipe')?.addEventListener('click', () => go(`/chef/dish/${id}/recipe`));
+
+  document.getElementById('delete-dish')?.addEventListener('click', async () => {
+    const d = state.detailCache.get(id) || findDish(id);
+    const ok = await confirmSheet({
+      title: '删除这道菜',
+      message: `「${d?.name || '这道菜'}」删除后家人就点不了了，历史点单里的记录会保留。`,
+      confirmText: '删除',
+      danger: true
+    });
+    if (!ok) return;
+    try {
+      await state.store.deleteDish(id);
+      state.detailCache.delete(id);
+      await refreshData(true);
+      toast('已删除', { type: 'success' });
+      go('/chef/dishes');
+    } catch (err) {
+      toast(err.message || '删除失败', { duration: 4000 });
+    }
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

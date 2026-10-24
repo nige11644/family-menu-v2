@@ -412,8 +412,10 @@ export class CloudStore {
   }
 
   async deleteDish(dishId) {
-    const { error } = await this.client.from('dish').delete().eq('id', dishId);
+    // 带 select 才能知道是否真的删掉了（不是创建者时 RLS 会静默删 0 行）
+    const { data, error } = await this.client.from('dish').delete().eq('id', dishId).select('id');
     if (error) throw friendly(error);
+    if (!data || data.length === 0) throw new Error('没删掉：这道菜不是你的账号创建的');
     this._emit('dishes');
   }
 
