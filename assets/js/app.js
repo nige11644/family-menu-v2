@@ -299,6 +299,8 @@ function pageJoin() {
         </div>
         <div class="form-error" id="join-error"></div>
         <button class="btn" type="submit">进入家宴</button>
+        <button class="btn ghost" type="button" id="join-register" style="margin-top:10px">一键开店 · 我是厨师</button>
+        <p class="fineprint" style="margin-top:8px">没有家庭码？点「一键开店」直接给自己开一个厨房，进去后把家庭码发给家人。</p>
       </form>
       <div class="join-foot">
         <button class="link-btn" id="mode-demo">先用演示数据逛逛</button>
@@ -371,6 +373,30 @@ function bindJoin() {
     toast('演示模式：你是「主厨小王」', { type: 'success', duration: 2000 });
     go('/chef');
     } catch (err) { console.error('[demo click]', err); toast(err.message || '进入演示模式失败', { duration: 4000 }); }
+  });
+
+  document.getElementById('join-register')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '正在开厨房…';
+    try {
+      const nickname = document.getElementById('join-name').value.trim() || '主厨';
+      const familyName = `${nickname}家`;
+      await state.store.createFamily({ name: familyName, nickname });
+      state.session = state.store.getSession();
+      state.cart = loadCart();
+      state.cartNote = '';
+      await refreshData(true);
+      if (state.session) state.session.role = 1;
+      localStorage.setItem('fm_mode', state.mode);
+      haptic(12);
+      toast(`已开好「${familyName}」，你是厨师`, { type: 'success', duration: 2500 });
+      go('/chef');
+    } catch (err) {
+      showError(err.message || '创建家庭失败');
+      btn.disabled = false;
+      btn.textContent = '一键开店 · 我是厨师';
+    }
   });
 
   document.getElementById('connect-cloud').addEventListener('click', openCloudConfig);

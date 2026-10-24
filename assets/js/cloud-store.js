@@ -90,6 +90,7 @@ function friendly(error) {
   if (/家庭码/.test(raw)) return new Error('家庭码不正确，请核对家庭群里的 8 位码');
   if (/row-level security|permission denied/i.test(raw)) return new Error('权限不足：请确认 SQL 脚本里的 RLS 已执行，或当前账号是厨师');
   if (/does not exist|relation .* not found/i.test(raw)) return new Error('数据库还没有建表：请先在 SQL Editor 执行 supabase/schema.sql');
+  if (/could not find the function/i.test(raw)) return new Error('数据库缺少函数：请先在 SQL Editor 执行 supabase/schema.sql');
   if (/Failed to fetch|NetworkError/i.test(raw)) return new Error('连不上 Supabase：请检查网络或项目 URL');
   return new Error(raw);
 }
@@ -210,15 +211,25 @@ export class CloudStore {
 
   /* ---------- 家庭 ---------- */
   async createFamily({ name, nickname }) {
+    const famName = (name || '我家').trim().slice(0, 16);
+    const nick = (nickname || '主厨').trim().slice(0, 12);
     const { data: code, error: cErr } = await this.client.rpc('generate_join_code');
     if (cErr) throw friendly(cErr);
-    const famName = (name || '我家').trim().slice(0, 16);
+    // 注意：create_family 只有 p_name / p_join_code 两个参数，
+    // 多传 p_nickname 会被 PostgREST 判为函数不存在（404）
     const { data: familyId, error } = await this.client.rpc('create_family', {
       p_name: famName,
-      p_join_code: code,
-      p_nickname: (nickname || '主厨').trim()
+      p_join_code: code
     });
     if (error) throw friendly(error);
+    // create_family 里昵称先写成家庭名，这里改成本人昵称
+    if (familyId && nick) {
+      await this.client
+        .from('family_member')
+        .update({ nickname: nick })
+        .eq('user_id', this._userId)
+        .eq('family_id', familyId);
+    }
     await this._loadSession();
     this._emit('session');
     return { familyId, familyName: famName, joinCode: code };
