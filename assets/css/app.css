@@ -145,22 +145,6 @@ p { margin: 0; }
   white-space: nowrap;
 }
 .view-chip:active { background: var(--paper-2); }
-.invite-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 18px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--accent);
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.invite-btn:active { background: var(--accent-soft); }
 .invite-card {
   padding: 18px;
   border-radius: var(--radius);

@@ -2359,7 +2359,6 @@ function pageChefBoard() {
         <h1 class="chef-title">${active.length} 道菜等你 · <span class="n">${pendingCount}</span> 份</h1>
         <div class="live-dot"><i></i>${state.mode === 'cloud' ? '实时连接中' : '演示模式'}</div>
       </div>
-      <button class="invite-btn" data-invite>${icon('users', 16)} 邀请家人</button>
     </div>
     ${mealStateHtml()}
     <div class="chef-switch">
@@ -2392,9 +2391,6 @@ function bindChefBoard() {
 
   // 家庭切换器
   document.querySelector('[data-fam-pick]')?.addEventListener('click', openFamilyPicker);
-
-  // 邀请家人（手机可调起系统分享面板，含微信）
-  document.querySelector('[data-invite]')?.addEventListener('click', openInviteSheet);
 
   // 关席 / 重新开席（好评开关）
   document.querySelector('[data-close-meal]')?.addEventListener('click', async () => {
@@ -3504,6 +3500,9 @@ function pageSettings() {
       <button class="setting-row" id="copy-code">
         <span class="sr-label">家庭码</span><span class="sr-value">${esc(joinCode || '—')}</span>${icon('chevron', 16, 'chev')}
       </button>
+      <button class="setting-row" id="invite-family">
+        <span class="sr-label">邀请家人</span><span class="sr-value">分享给家人</span>${icon('chevron', 16, 'chev')}
+      </button>
     </div>
     <div class="setting-group">
       <button class="setting-row" id="sound-toggle">
@@ -3627,6 +3626,9 @@ function bindSettings() {
       toast(`家庭码：${code}`);
     }
   });
+
+  // 邀请家人：手机可调起系统分享面板（含微信），不支持的浏览器回退到复制文案
+  document.getElementById('invite-family')?.addEventListener('click', openInviteSheet);
 
   document.getElementById('sound-toggle')?.addEventListener('click', () => {
     const on = localStorage.getItem('fm_sound') !== 'off';
