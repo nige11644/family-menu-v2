@@ -372,10 +372,11 @@ function bindJoin() {
 
 /* ============ C02 菜单首页 ============ */
 function visibleDishes(cat) {
-  const c = cat === undefined ? state.menuCategory : cat;
+  const q = state.menuQuery.trim();
+  // 搜索时跨所有分类找菜，不被当前分类标签限制
+  const c = q ? '全部' : (cat === undefined ? state.menuCategory : cat);
   let list = state.dishes.filter((d) => d.status !== 'off');
   if (c !== '全部') list = list.filter((d) => d.category === c);
-  const q = state.menuQuery.trim();
   if (q) {
     list = list.filter((d) => `${d.name}${d.intro}${d.category}`.toLowerCase().includes(q.toLowerCase()));
   }
