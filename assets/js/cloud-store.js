@@ -2,10 +2,25 @@
 import { seedDishes } from './seed.js';
 
 let createClientFn = null;
+// 本地内置 supabase-js（UMD），不再依赖 jsDelivr：国内手机网络常把 CDN 重置，
+// 一旦 CDN 加载失败就会静默降级成演示模式，表现为「厨师端进不去/看不到家人订单」
+function loadLocalSupabase() {
+  if (window.supabase?.createClient) return Promise.resolve(window.supabase.createClient);
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = new URL('./vendor/supabase.js', import.meta.url).href;
+    s.onload = () => {
+      if (window.supabase?.createClient) resolve(window.supabase.createClient);
+      else reject(new Error('supabase 本地文件异常：没有找到 createClient'));
+    };
+    s.onerror = () => reject(new Error('本地 supabase.js 加载失败，请检查 assets/js/vendor/supabase.js'));
+    document.head.appendChild(s);
+  });
+}
+
 async function loadSupabase() {
   if (createClientFn) return createClientFn;
-  const mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
-  createClientFn = mod.createClient;
+  createClientFn = await loadLocalSupabase();
   return createClientFn;
 }
 
@@ -68,7 +83,10 @@ function friendly(error) {
   if (/anonymous.*disabled/i.test(raw)) {
     return new Error('Supabase 未开启匿名登录：请在 Authentication → Sign In / Providers 打开 Anonymous sign-ins');
   }
-  if (/invalid.*api.?key|jwt/i.test(raw)) return new Error('Supabase URL 或 anon key 不正确');
+  if (/invalid.*api.?key/i.test(raw)) return new Error('Supabase URL 或 anon key 不正确');
+  // 匿名会话过期/未带 token 时，服务端 auth.uid() 为空，写家庭成员会撞 not-null 约束
+  if (/jwt expired|invalid jwt/i.test(raw)) return new Error('登录状态已过期，请刷新页面重新进入家宴');
+  if (/null value in column .*user_id|23502/i.test(raw)) return new Error('登录状态失效，请刷新页面重新进入家宴');
   if (/家庭码/.test(raw)) return new Error('家庭码不正确，请核对家庭群里的 8 位码');
   if (/row-level security|permission denied/i.test(raw)) return new Error('权限不足：请确认 SQL 脚本里的 RLS 已执行，或当前账号是厨师');
   if (/does not exist|relation .* not found/i.test(raw)) return new Error('数据库还没有建表：请先在 SQL Editor 执行 supabase/schema.sql');
@@ -98,6 +116,14 @@ export class CloudStore {
       auth: { persistSession: true, autoRefreshToken: true }
     });
     let { data: { session } } = await this.client.auth.getSession();
+    // 本地可能存着过期的匿名会话（匿名 JWT 1 小时就过期）。
+    // 拿过期 token 调 RPC 会被 PostgREST 当成未登录，服务端 auth.uid() 为空，
+    // join_family 就会报 user_id 不能为 null —— 手机端「进不去」多半是这一步
+    const expMs = session?.expires_at ? session.expires_at * 1000 : 0;
+    if (session && expMs && expMs - Date.now() < 60_000) {
+      const { data: refreshed } = await this.client.auth.refreshSession();
+      session = refreshed?.session || null;
+    }
     if (!session) {
       const { data, error } = await this.client.auth.signInAnonymously();
       if (error) throw friendly(error);
@@ -136,14 +162,19 @@ export class CloudStore {
         family: { id: m.family_id, name: m.family.name, joinCode: m.family.join_code }
       }));
 
-    if (!profile && families.length === 0) {
+    // 注意：注册触发器会给每个匿名用户自动建 user_profiles 行，
+    // 所以「有 profile」不代表已经进过家宴。只有真正属于某个家庭才算已登录，
+    // 否则会被当成已登录直接进菜单页，永远回不到填家庭码的入口（厨师端也就进不去）
+    if (families.length === 0) {
       this.session = null;
       return null;
     }
 
-    const currentFamilyId = profile?.current_family_id
-      || families[0]?.familyId
-      || null;
+    // current_family_id 可能指向已删除/已退出的家庭，必须校验，否则角色会回落成家人进不去厨师端
+    const savedFamilyId = profile?.current_family_id;
+    const currentFamilyId = (savedFamilyId && families.some((f) => f.familyId === savedFamilyId))
+      ? savedFamilyId
+      : (families[0]?.familyId || null);
     const curFm = families.find((f) => f.familyId === currentFamilyId);
 
     this.session = {
@@ -194,13 +225,27 @@ export class CloudStore {
   }
 
   async joinFamily({ code, nickname, role }) {
+    const wanted = Number(role) === 1 ? 1 : 0;
     const { error } = await this.client.rpc('join_family', {
       p_code: (code || '').trim().toUpperCase(),
       p_nickname: (nickname || '').trim(),
-      p_role: Number(role) === 1 ? 1 : 0
+      p_role: wanted
     });
     if (error) throw friendly(error);
     await this._loadSession();
+    // 服务端 join_family 对已加入的家庭是 do nothing，角色不会更新，
+    // 所以这里按本次选择强制同步角色（否则选「我掌勺」也会被当成家人，厨师端进不去）
+    if (this.session?.currentFamilyId && this.session.role !== wanted) {
+      const { error: rErr } = await this.client
+        .from('family_member')
+        .update({ role: wanted })
+        .eq('user_id', this.session.userId)
+        .eq('family_id', this.session.currentFamilyId);
+      if (rErr) throw friendly(rErr);
+      this.session.role = wanted;
+      const curFm = this.session.families.find((f) => f.familyId === this.session.currentFamilyId);
+      if (curFm) curFm.role = wanted;
+    }
     this._resubscribe();
     this._emit('session');
     return this.session;

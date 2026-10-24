@@ -1,5 +1,5 @@
 /* 家宴 Service Worker：缓存应用外壳与菜品图，弱网也能看做法 */
-const VERSION = 'jiayan-v2';
+const VERSION = 'jiayan-v3';
 const SHELL = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const SHELL = [
   './assets/js/ui.js',
   './assets/js/demo-store.js',
   './assets/js/cloud-store.js',
+  './assets/js/vendor/supabase.js',
   './assets/js/seed.js',
   './assets/js/config.js',
   './assets/img/app-icon.png',
