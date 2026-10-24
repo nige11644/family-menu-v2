@@ -180,6 +180,50 @@ begin
 end;
 $$;
 
+create or replace function public.member_remove(
+  p_family_id uuid,
+  p_user_id uuid
+) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_chef_of(p_family_id) then
+    raise exception '只有厨师能移除成员';
+  end if;
+  if p_user_id = auth.uid() then
+    raise exception '不能移除自己';
+  end if;
+  if exists (
+    select 1 from public.family_member
+    where family_id = p_family_id and user_id = p_user_id and role = 1
+  ) then
+    raise exception '不能移除厨师，请先把对方改为家人';
+  end if;
+
+  delete from public.family_member
+   where family_id = p_family_id and user_id = p_user_id;
+
+  if not found then
+    raise exception '成员不存在';
+  end if;
+
+  -- 对方当前正在这个家庭的话，切到他剩下的另一个家庭（没有就置空），
+  -- 免得下次打开还在一个已经没有权限的家庭里。
+  update public.user_profiles p
+     set current_family_id = (
+       select fm.family_id from public.family_member fm
+       where fm.user_id = p_user_id
+       order by fm.joined_at desc
+       limit 1
+     ),
+     updated_at = now()
+   where p.user_id = p_user_id
+     and p.current_family_id = p_family_id;
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 权限与实时
 -- ---------------------------------------------------------------------------
@@ -188,12 +232,14 @@ revoke all on function public.touch_member(uuid) from public;
 revoke all on function public.member_set_alias(uuid, uuid, text) from public;
 revoke all on function public.member_set_absent(uuid, uuid, boolean) from public;
 revoke all on function public.member_set_status(uuid, uuid, text) from public;
+revoke all on function public.member_remove(uuid, uuid) from public;
 
 grant execute on function public.room_members(uuid) to anon, authenticated;
 grant execute on function public.touch_member(uuid) to anon, authenticated;
 grant execute on function public.member_set_alias(uuid, uuid, text) to anon, authenticated;
 grant execute on function public.member_set_absent(uuid, uuid, boolean) to anon, authenticated;
 grant execute on function public.member_set_status(uuid, uuid, text) to anon, authenticated;
+grant execute on function public.member_remove(uuid, uuid) to anon, authenticated;
 
 do $$ begin
   alter publication supabase_realtime add table public.family_member;

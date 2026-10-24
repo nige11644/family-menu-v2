@@ -459,6 +459,16 @@ export class CloudStore {
     this._emit('members');
   }
 
+  // 移除成员（真正退出家庭，对方需用家庭码重新加入；点菜记录保留）
+  async removeMember(userId) {
+    const { error } = await this.client.rpc('member_remove', {
+      p_family_id: this.getCurrentFamilyId(),
+      p_user_id: userId
+    });
+    if (error) throw friendly(error);
+    this._emit('members');
+  }
+
   /* ---------- 在线状态（Realtime Presence） ---------- */
   async startPresence() {
     const fid = this.session?.currentFamilyId;

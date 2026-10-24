@@ -273,6 +273,7 @@ class DemoStore {
     if (m && m.userId === userId) m.isAbsent = !!absent;
   }
   async setMemberStatus() { throw new Error('演示模式不支持归档'); }
+  async removeMember() { throw new Error('演示模式不支持移除成员'); }
   presenceIds() {
     const s = this.getSession();
     return new Set(s?.userId ? [s.userId] : []);
