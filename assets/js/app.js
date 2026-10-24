@@ -362,6 +362,17 @@ function currentPath() {
   return p && p !== '/' ? p : '/menu';
 }
 
+/* 视角：厨师可在「厨师端 / 家人端」之间来回切换；客人只有家人端 */
+function viewMode() {
+  if (state.session?.role !== 1) return 'family';
+  return localStorage.getItem('fm_view_mode') === 'family' ? 'family' : 'chef';
+}
+function setViewMode(mode) {
+  if (state.session?.role !== 1) return;
+  if (mode === 'family') localStorage.setItem('fm_view_mode', 'family');
+  else localStorage.removeItem('fm_view_mode');
+}
+
 function render() {
   if (!state.ready) return;
   const path = currentPath();
@@ -371,11 +382,16 @@ function render() {
     return;
   }
   if (path === '/join' && state.session) {
-    location.replace(state.session.role === 1 ? '#/chef' : '#/menu');
+    location.replace(viewMode() === 'chef' ? '#/chef' : '#/menu');
     return;
   }
   if (path.startsWith('/chef') && state.session && state.session.role !== 1) {
     toast('这里是厨房重地，先切换成厨师身份');
+    location.replace('#/menu');
+    return;
+  }
+  // 厨师切到家人视角后，厨师页面暂时不可见，避免两端界面混着用
+  if (path.startsWith('/chef') && state.session?.role === 1 && viewMode() === 'family') {
     location.replace('#/menu');
     return;
   }
@@ -577,7 +593,7 @@ function bindJoin() {
       state.cartNote = '';
       await refreshData(true);
       toast(`欢迎回家，${state.session.nickname}`, { type: 'success' });
-      go(state.session.role === 1 ? '/chef' : '/menu');
+      go(viewMode() === 'chef' ? '/chef' : '/menu');
     } catch (err) {
       showError(err.message);
       btn.disabled = false;
@@ -2345,6 +2361,7 @@ function openFamilyPicker({ allowCreate = true, allowJoin = true } = {}) {
     if (fid === curId) { sheet.parentElement.querySelector('.sheet-backdrop')?.click(); return; }
     try {
       await state.store.switchFamily(fid);
+      localStorage.removeItem('fm_view_mode');   // 换家庭后回到该家庭的默认视角
       state.cart = loadCart();          // 每个家庭各自一份点菜单
       state.cartNote = '';
       await refreshData(true);
@@ -2383,6 +2400,7 @@ function openCreateFamilySheet() {
     sheet.querySelector('[data-ok]').disabled = true;
     try {
       await state.store.createFamily({ name, nickname: state.session?.nickname });
+      localStorage.removeItem('fm_view_mode');
       state.cart = loadCart();
       state.cartNote = '';
       await refreshData(true);
@@ -2396,16 +2414,18 @@ function openCreateFamilySheet() {
 
 /* 加入家庭弹层 */
 function openJoinFamilySheet() {
+  // 身份选择只对厨师开放：客人用家庭码加入，一律是家人，不能借加入变成厨师
+  const isChef = state.session?.role === 1;
   const { sheet } = openSheet({
     title: '加入家庭',
     sub: '用家庭码加入',
     body: `
       <div class="form-row"><label>家庭码</label><input id="jf-code" maxlength="12" placeholder="如 HOME77" style="text-transform:uppercase"></div>
       <div class="form-row"><label>你的昵称</label><input id="jf-nick" maxlength="12" placeholder="如 张阿姨"></div>
-      <div class="form-row form-row-inline">
+      ${isChef ? `<div class="form-row form-row-inline">
         <label class="radio"><input type="radio" name="jf-role" value="0" checked><span>我是家人</span></label>
         <label class="radio"><input type="radio" name="jf-role" value="1"><span>我是厨师</span></label>
-      </div>
+      </div>` : ''}
     `,
     footer: `<button class="btn ghost" data-cancel>取消</button><button class="btn" data-ok>加入</button>`
   });
@@ -2413,12 +2433,13 @@ function openJoinFamilySheet() {
   sheet.querySelector('[data-ok]')?.addEventListener('click', async () => {
     const code = sheet.querySelector('#jf-code').value.trim().toUpperCase();
     const nick = sheet.querySelector('#jf-nick').value.trim();
-    const role = Number(sheet.querySelector('input[name="jf-role"]:checked')?.value || 0);
+    const role = isChef ? Number(sheet.querySelector('input[name="jf-role"]:checked')?.value || 0) : 0;
     if (!code) return toast('填家庭码');
     if (!nick) return toast('填昵称');
     sheet.querySelector('[data-ok]').disabled = true;
     try {
       await state.store.joinFamily({ code, nickname: nick, role });
+      localStorage.removeItem('fm_view_mode');
       state.cart = loadCart();
       state.cartNote = '';
       await refreshData(true);
@@ -3030,6 +3051,7 @@ function bindRecipeEdit(id) {
 function pageSettings() {
   const s = state.session;
   const isChef = s.role === 1;
+  const chefView = viewMode() === 'chef';
   // 自定义头像是 URL，不能只看预设表，否则上传成功也仍显示昵称首字
   const photo = /^(https?:|data:image)/i.test(s.avatar || '');
   const av = photo ? null : avatarPreset(s.avatar);
@@ -3045,16 +3067,16 @@ function pageSettings() {
       </button>
       <div>
         <div class="pb-name">${esc(s.nickname)}</div>
-        <div class="pb-meta">${isChef ? '厨师 · ' : '家人 · '}${esc(famName)} · ${state.mode === 'cloud' ? '云同步' : '体验模式'}</div>
+        <div class="pb-meta">${isChef ? (chefView ? '厨师' : '家人视角') : '家人'} · ${esc(famName)} · ${state.mode === 'cloud' ? '云同步' : '体验模式'}</div>
       </div>
     </div>
     <div class="setting-group">
       <button class="setting-row" id="edit-name">
         <span class="sr-label">昵称</span><span class="sr-value">${esc(s.nickname)}</span>${icon('chevron', 16, 'chev')}
       </button>
-      <button class="setting-row" id="switch-role">
-        <span class="sr-label">切换身份</span><span class="sr-value">${isChef ? '当前：厨师' : '当前：家人'}</span>${icon('chevron', 16, 'chev')}
-      </button>
+      ${isChef ? `<button class="setting-row" id="switch-view">
+        <span class="sr-label">切换视角</span><span class="sr-value">${chefView ? '当前：厨师端' : '当前：家人端'}</span>${icon('chevron', 16, 'chev')}
+      </button>` : ''}
       <button class="setting-row" id="switch-family">
         <span class="sr-label">当前家庭</span><span class="sr-value">${esc(famName)}</span>${icon('chevron', 16, 'chev')}
       </button>
@@ -3082,7 +3104,7 @@ function pageSettings() {
       </button>
     </div>
     <p class="fineprint" style="padding:0 20px 30px">家宴 · 自用版本。不上架应用商店，不对外提供服务。数据默认保存在你自己的 Supabase 项目里。</p>
-    ${navBar(isChef ? 'chef' : 'family')}
+    ${navBar(chefView ? 'chef' : 'family')}
   </div>`;
 }
 
@@ -3154,21 +3176,20 @@ function bindSettings() {
     });
   });
 
-  document.getElementById('switch-role')?.addEventListener('click', async () => {
-    const next = state.session.role === 1 ? 0 : 1;
+  document.getElementById('switch-view')?.addEventListener('click', async () => {
+    const next = viewMode() === 'chef' ? 'family' : 'chef';
     const ok = await confirmSheet({
-      title: next === 1 ? '切换到厨师身份' : '切换回点菜身份',
-      message: next === 1 ? '厨师能看全部点单、改状态、管理菜品。' : '家人只能看到自己点的菜。',
+      title: next === 'family' ? '切换到家人端' : '切换回厨师端',
+      message: next === 'family'
+        ? '家人端就是家人点菜看到的界面，可以随时切回厨师端。'
+        : '回到厨师端，继续接单、汇总和管理菜品。',
       confirmText: '切换'
     });
     if (!ok) return;
-    try {
-      await state.store.updateProfile({ role: next });
-      state.session = state.store.getSession();
-      await refreshData(true);
-      toast(next === 1 ? '已切换为厨师' : '已切换为家人', { type: 'success' });
-      go(next === 1 ? '/chef' : '/menu');
-    } catch (err) { toast(err.message); }
+    setViewMode(next);
+    await refreshData(true);
+    toast(next === 'family' ? '已切到家人端' : '已切回厨师端', { type: 'success' });
+    go(next === 'family' ? '/menu' : '/chef');
   });
 
   document.getElementById('switch-family')?.addEventListener('click', () => {
@@ -3234,6 +3255,7 @@ function bindSettings() {
     });
     if (!ok) return;
     await state.store.logout();
+    localStorage.removeItem('fm_view_mode');
     state.session = null;
     state.cart = [];
     saveCart();
@@ -3302,7 +3324,7 @@ function openCloudConfig() {
       close();
       await refreshData(true);
       toast('已启用云同步', { type: 'success' });
-      if (state.session) go(state.session.role === 1 ? '/chef' : '/menu');
+      if (state.session) go(viewMode() === 'chef' ? '/chef' : '/menu');
       else go('/join');
     } catch (err) {
       errEl.textContent = err.message;
