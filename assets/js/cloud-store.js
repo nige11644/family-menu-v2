@@ -95,7 +95,7 @@ function friendly(error) {
   // 匿名会话过期/未带 token 时，服务端 auth.uid() 为空，写家庭成员会撞 not-null 约束
   if (/jwt expired|invalid jwt/i.test(raw)) return new Error('登录状态已过期，请刷新页面重新进入家宴');
   if (/null value in column .*user_id|23502/i.test(raw)) return new Error('登录状态失效，请刷新页面重新进入家宴');
-  if (/家庭码/.test(raw)) return new Error('家庭码不正确，请核对家庭群里的 8 位码');
+  if (/家庭码/.test(raw)) return new Error('家庭码不正确，请核对家庭群里的 6 位码');
   if (/row-level security|permission denied/i.test(raw)) return new Error('权限不足：请确认 SQL 脚本里的 RLS 已执行，或当前账号是厨师');
   if (/does not exist|relation .* not found/i.test(raw)) return new Error('数据库还没有建表：请先在 SQL Editor 执行 supabase/schema.sql');
   if (/could not find the function/i.test(raw)) return new Error('数据库缺少函数：请先在 SQL Editor 执行 supabase/schema.sql');
@@ -364,42 +364,49 @@ export class CloudStore {
   }
 
   async saveDish(payload) {
-    const { data, error } = await this.client.rpc('save_dish', {
-      p_id: payload.id || null,
-      p_payload: {
-        name: payload.name,
-        category: payload.category,
-        imageUrl: payload.mainImage || '',
-        intro: payload.intro || '',
-        prepMinutes: Number(payload.prepMinutes) || 0,
-        cookingMinutes: Number(payload.cookMinutes) || 15,
-        difficulty: payload.difficulty || '易',
-        servingsPer: Number(payload.servings) || 2,
-        allergens: payload.allergens || '无',
-        status: payload.status || 'on',
-        sortNo: payload.sortNo ?? 99,
-        hasRecipe: payload.hasRecipe !== false,
-        ingredients: payload.ingredients || [],
-        seasonings: payload.seasonings || [],
-        steps: payload.steps || []
-      }
-    });
+    // 直写 dish 表（线上未部署 save_dish RPC；dish_write 策略允许本人读写自己的菜）
+    const row = {
+      name: payload.name,
+      category: payload.category,
+      image_url: payload.mainImage || '',
+      intro: payload.intro || '',
+      prep_minutes: Number(payload.prepMinutes) || 0,
+      cooking_minutes: Number(payload.cookMinutes) || 15,
+      difficulty: payload.difficulty || '易',
+      servings_per: Number(payload.servings) || 2,
+      allergens: payload.allergens || '无',
+      status: payload.status || 'on',
+      sort_no: payload.sortNo ?? 99,
+      has_recipe: payload.hasRecipe !== false,
+      ingredients: payload.ingredients || [],
+      seasonings: payload.seasonings || [],
+      steps: payload.steps || [],
+      updated_at: new Date().toISOString()
+    };
+    if (payload.id) {
+      // 带 select 才能知道是否真的更新到行（不是创建者时 RLS 会静默更新 0 行）
+      const { data, error } = await this.client.from('dish').update(row).eq('id', payload.id).select('id');
+      if (error) throw friendly(error);
+      if (!data || data.length === 0) throw new Error('没改成：这道菜不是你的账号创建的');
+      this._emit('dishes');
+      return payload.id;
+    }
+    row.created_by = this.session?.userId || this._userId;
+    const { data, error } = await this.client.from('dish').insert(row).select('id').single();
     if (error) throw friendly(error);
     this._emit('dishes');
-    return data;
+    return data.id;
   }
 
-  // v2 菜谱就存在 dish 行内，保存时带上已有字段即可（save_dish 缺省保留原值）
+  // v2 菜谱就存在 dish 行内，缺省字段不动
   async saveRecipe(dishId, { ingredients, seasonings, steps }) {
-    const { error } = await this.client.rpc('save_dish', {
-      p_id: dishId,
-      p_payload: {
-        ingredients: ingredients || [],
-        seasonings: seasonings || [],
-        steps: steps || [],
-        hasRecipe: (ingredients?.length || 0) > 0 && (steps?.length || 0) > 0
-      }
-    });
+    const { error } = await this.client.from('dish').update({
+      ingredients: ingredients || [],
+      seasonings: seasonings || [],
+      steps: steps || [],
+      has_recipe: (ingredients?.length || 0) > 0 && (steps?.length || 0) > 0,
+      updated_at: new Date().toISOString()
+    }).eq('id', dishId);
     if (error) throw friendly(error);
     this._emit('dishes');
   }
@@ -453,8 +460,25 @@ export class CloudStore {
   }
 
   async cancelOrder(orderId) {
-    const { error } = await this.client.rpc('cancel_order', { p_order_id: orderId });
-    if (error) throw friendly(error);
+    // 直写代替 cancel_order RPC（线上未部署）：明细有非 pending 的说明厨师已开工
+    const { data: items, error: qErr } = await this.client
+      .from('order_item').select('status').eq('order_id', orderId);
+    if (qErr) throw friendly(qErr);
+    if ((items || []).some((i) => i.status !== 'pending' && i.status !== 'cancelled')) {
+      throw new Error('厨师已经开始做了，撤不回啦');
+    }
+    // RLS：只有本人且仍是 pending 的单能改（他人/已接单的单会更新 0 行）
+    const { data: updated, error: mErr } = await this.client
+      .from('order_main')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .eq('status', 'pending')
+      .select('id');
+    if (mErr) throw friendly(mErr);
+    if (!updated || updated.length === 0) throw new Error('订单不存在或已被处理，刷新看看');
+    const { error: iErr } = await this.client
+      .from('order_item').update({ status: 'cancelled' }).eq('order_id', orderId);
+    if (iErr) throw friendly(iErr);
     this._emit('orders');
   }
 
