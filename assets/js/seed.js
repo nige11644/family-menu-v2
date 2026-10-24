@@ -1,5 +1,5 @@
 /** 内置菜谱（演示模式与 SQL 种子共用同一份数据）
- * 共 14 道菜，覆盖 6 大品类
+ * 共 20 道菜，覆盖 6 大品类
  * 每道菜含：食材精确重量、调料品牌提示、分步时长+火候+计时器、关键技巧
  */
 
@@ -210,7 +210,82 @@ export const seedDishes = [
     ]
   },
 
-  /* ================== 凉菜 1 道 ================== */
+  {
+    id: 'd-mapo-tofu',
+    name: '麻婆豆腐',
+    category: '热菜',
+    intro: '麻辣鲜香烫，豆腐嫩得能抿，一勺盖饭最过瘾',
+    prepMinutes: 10,
+    cookMinutes: 12,
+    difficulty: '中',
+    servings: 3,
+    allergens: '含大豆',
+    mainImage: img('dish-mapo-tofu'),
+    status: 'on',
+    sortNo: 6,
+    ingredients: [
+      { name: '嫩豆腐', amount: 400, unit: 'g', role: 'main', note: '切 2cm 方块，别用老豆腐' },
+      { name: '牛肉末', amount: 80, unit: 'g', role: 'main', note: '猪肉末也可以' },
+      { name: '蒜苗', amount: 2, unit: '根', role: 'sub', note: '斜切 1cm 段，没有用小葱' },
+      { name: '生姜', amount: 1, unit: '块', role: 'sub', note: '切末' },
+      { name: '大蒜', amount: 3, unit: '瓣', role: 'sub', note: '切末' }
+    ],
+    seasonings: [
+      { name: '郫县豆瓣酱', amountText: '20g', brandNote: '剁细，推荐鹃城牌' },
+      { name: '豆豉', amountText: '5g', brandNote: '剁碎，增香关键' },
+      { name: '辣椒面', amountText: '3g', brandNote: '增红亮' },
+      { name: '花椒粉', amountText: '2g', brandNote: '出锅撒，现磨最香' },
+      { name: '生抽', amountText: '10ml', brandNote: '' },
+      { name: '花雕酒', amountText: '10ml', brandNote: '炒肉末用' },
+      { name: '玉米淀粉', amountText: '5g', brandNote: '加水调成水淀粉' }
+    ],
+    steps: [
+      { description: '豆腐切 2cm 方块，放入加 2g 盐的温水中浸 3 分钟，捞出沥干。盐水浸过的豆腐不易碎、也不会有豆腥味', durationMinutes: 3, needTimer: true, heatTip: '温水', tip: '千万别用开水烫，嫩豆腐一烫就散' },
+      { description: '锅下 10ml 油，中火下牛肉末炒散炒干水分，加花雕酒 10ml 去腥，炒到肉末微微酥香盛出', durationMinutes: 3, needTimer: false, heatTip: '中火', tip: '肉末要炒到粒粒分明，不能水汪汪' },
+      { description: '转小火，下郫县豆瓣酱 20g + 豆豉 + 姜末蒜末，慢慢炒 2 分钟炒出红油，加辣椒面 3g 炒香', durationMinutes: 2, needTimer: true, heatTip: '小火 100°C', tip: '这一步叫"炒香"，红油出来了整道菜才红亮' },
+      { description: '加 300ml 清水烧开，倒回牛肉末，用铲子把豆腐沿着锅边轻轻推入，**不要用铲子翻**，轻推锅底晃开', durationMinutes: 2, needTimer: false, heatTip: '中小火', tip: '全程用推不用翻，豆腐才完整' },
+      { description: '中小火煮 5 分钟让豆腐入味，分 2 次淋入水淀粉，每次等汤汁变稠再淋下一次，轻轻推匀', durationMinutes: 5, needTimer: true, heatTip: '中小火', tip: '分两次勾芡，汁才能挂得住豆腐' },
+      { description: '撒蒜苗段推匀，关火装盘，最后撒花椒粉。麻婆豆腐讲究"麻在最后"，花椒粉一定要离火后再撒', durationMinutes: 1, needTimer: false, heatTip: '关火', tip: '花椒粉下锅炒会发苦，只能出锅撒' }
+    ]
+  },
+
+  {
+    id: 'd-steamed-fish',
+    name: '清蒸鲈鱼',
+    category: '热菜',
+    intro: '肉嫩如豆腐，一勺豉油淋热油，宴客最有面子的一道',
+    prepMinutes: 12,
+    cookMinutes: 10,
+    difficulty: '中',
+    servings: 3,
+    allergens: '含鱼',
+    mainImage: img('dish-steamed-fish'),
+    status: 'on',
+    sortNo: 7,
+    ingredients: [
+      { name: '鲈鱼', amount: 1, unit: '条', role: 'main', note: '约 600g，现杀的最鲜' },
+      { name: '大葱', amount: 1, unit: '根', role: 'sub', note: '葱白切细丝泡水会卷' },
+      { name: '小葱', amount: 3, unit: '根', role: 'sub', note: '垫鱼身用' },
+      { name: '生姜', amount: 1, unit: '块', role: 'sub', note: '一半切片一半切细丝' },
+      { name: '红椒', amount: 1, unit: '个', role: 'sub', note: '切细丝装饰（可选）' }
+    ],
+    seasonings: [
+      { name: '蒸鱼豉油', amountText: '30ml', brandNote: '推荐李锦记蒸鱼豉油' },
+      { name: '花雕酒', amountText: '10ml', brandNote: '去腥' },
+      { name: '盐', amountText: '3g', brandNote: '抹鱼身' },
+      { name: '食用油', amountText: '20ml', brandNote: '最后泼热油' }
+    ],
+    steps: [
+      { description: '鲈鱼洗净，用厨房纸把鱼身内外擦干，两面各划两刀（深至骨），抹盐 3g + 花雕酒 10ml，鱼肚里塞姜片和葱段，腌 10 分钟', durationMinutes: 10, needTimer: true, heatTip: '', tip: '擦干是关键，带水下锅蒸出来腥' },
+      { description: '盘底铺小葱段和姜片把鱼架空，让蒸汽能从底下过。鱼身上再放两片姜', durationMinutes: 1, needTimer: false, heatTip: '', tip: '把鱼架空，受热才均匀，鱼底也不会泡在汤汁里' },
+      { description: '蒸锅水大开后放入鱼，**大火蒸 7 分钟**（600g 左右），关火不开盖再焖 2 分钟', durationMinutes: 9, needTimer: true, heatTip: '大火沸水', tip: '一定水开后再放鱼，冷水上锅肉会老' },
+      { description: '取出鱼，倒掉盘中所有汤汁（这汁最腥），夹走葱姜', durationMinutes: 1, needTimer: false, heatTip: '', tip: '这一步别省，倒掉蒸出来的水腥味少一半' },
+      { description: '鱼身铺新的葱丝、姜丝、红椒丝，沿盘边淋蒸鱼豉油 30ml（不要直接淋鱼身上）', durationMinutes: 1, needTimer: false, heatTip: '', tip: '豉油沿盘边淋，鱼身颜色才干净' },
+      { description: '另起锅烧 20ml 油至冒青烟（约 200°C），均匀泼在葱姜丝上，"刺啦"一声香味就出来了', durationMinutes: 1, needTimer: false, heatTip: '大火 200°C', tip: '油一定要烧到冒烟，泼下去才香' }
+    ]
+  },
+
+  /* ================== 凉菜 2 道 ================== */
   {
     id: 'd-cucumber',
     name: '凉拌黄瓜',
@@ -223,7 +298,7 @@ export const seedDishes = [
     allergens: '含芝麻',
     mainImage: img('dish-cucumber'),
     status: 'on',
-    sortNo: 6,
+    sortNo: 8,
     ingredients: [
       { name: '黄瓜', amount: 2, unit: '根', role: 'main', note: '选直挺硬实的，拍裂切段' },
       { name: '大蒜', amount: 3, unit: '瓣', role: 'sub', note: '拍碎切末' },
@@ -247,7 +322,44 @@ export const seedDishes = [
     ]
   },
 
-  /* ================== 汤 2 道 ================== */
+  {
+    id: 'd-wood-ear',
+    name: '凉拌木耳',
+    category: '凉菜',
+    intro: '脆嫩爽口，酸辣解腻，配大鱼大肉最合适',
+    prepMinutes: 8,
+    cookMinutes: 5,
+    difficulty: '易',
+    servings: 2,
+    allergens: '含芝麻',
+    mainImage: img('dish-wood-ear'),
+    status: 'on',
+    sortNo: 9,
+    ingredients: [
+      { name: '干木耳', amount: 30, unit: 'g', role: 'main', note: '冷水泡 1 小时，约出 200g' },
+      { name: '大蒜', amount: 4, unit: '瓣', role: 'sub', note: '切末' },
+      { name: '小米椒', amount: 2, unit: '个', role: 'sub', note: '切圈' },
+      { name: '香菜', amount: 1, unit: '小把', role: 'sub', note: '切 3cm 段' },
+      { name: '小葱', amount: 1, unit: '根', role: 'sub', note: '切葱花' }
+    ],
+    seasonings: [
+      { name: '生抽', amountText: '15ml', brandNote: '' },
+      { name: '香醋', amountText: '15ml', brandNote: '推荐恒顺香醋' },
+      { name: '香油', amountText: '5ml', brandNote: '' },
+      { name: '辣椒油', amountText: '8ml', brandNote: '自制的最香' },
+      { name: '白糖', amountText: '3g', brandNote: '提鲜' },
+      { name: '盐', amountText: '2g', brandNote: '' },
+      { name: '熟白芝麻', amountText: '3g', brandNote: '最后撒' }
+    ],
+    steps: [
+      { description: '干木耳用冷水泡 1 小时至完全舒展（冷水泡才脆），撕成小朵，剪掉根部硬蒂，多淘洗两遍去泥沙', durationMinutes: 60, needTimer: true, heatTip: '', tip: '千万别用热水泡，热水泡出来发软没口感' },
+      { description: '水烧开下木耳焯 2 分钟，捞出立刻过冷水（有条件加冰块），沥干水分', durationMinutes: 3, needTimer: true, heatTip: '大火沸水', tip: '焯完过冰水，脆感翻倍' },
+      { description: '木耳放大盆，加蒜末、小米椒圈、生抽、香醋、香油、辣椒油、白糖、盐，用手抓匀（比筷子拌更均匀）', durationMinutes: 2, needTimer: false, heatTip: '', tip: '拌好后尝一下，酸了加糖、淡了加生抽' },
+      { description: '撒香菜段、葱花和白芝麻，装盘。冷藏 15 分钟更入味', durationMinutes: 1, needTimer: false, heatTip: '' }
+    ]
+  },
+
+  /* ================== 汤 3 道 ================== */
   {
     id: 'd-tomato-soup',
     name: '番茄蛋汤',
@@ -260,7 +372,7 @@ export const seedDishes = [
     allergens: '无',
     mainImage: img('dish-tomato-soup'),
     status: 'on',
-    sortNo: 7,
+    sortNo: 10,
     ingredients: [
       { name: '番茄', amount: 2, unit: '个', role: 'main', note: '选红透的，越红越出沙' },
       { name: '鸡蛋', amount: 2, unit: '个', role: 'main', note: '充分打散' },
@@ -295,7 +407,7 @@ export const seedDishes = [
     allergens: '无',
     mainImage: img('dish-seaweed'),
     status: 'on',
-    sortNo: 8,
+    sortNo: 11,
     ingredients: [
       { name: '干紫菜', amount: 1, unit: '小坨', role: 'main', note: '大概 5g，撕碎' },
       { name: '鸡蛋', amount: 1, unit: '个', role: 'main', note: '打散' },
@@ -315,33 +427,41 @@ export const seedDishes = [
     ]
   },
 
-  /* ================== 主食 2 道 ================== */
   {
-    id: 'd-rice',
-    name: '香糯米饭',
-    category: '主食',
-    intro: '粒粒分明软糯香甜，配任何菜都百搭',
-    prepMinutes: 5,
-    cookMinutes: 25,
+    id: 'd-wintermelon-soup',
+    name: '冬瓜排骨汤',
+    category: '汤',
+    intro: '汤清味鲜，冬瓜吸饱肉香，夏天喝最舒服',
+    prepMinutes: 10,
+    cookMinutes: 60,
     difficulty: '易',
     servings: 4,
     allergens: '无',
-    mainImage: img('dish-rice'),
+    mainImage: img('dish-wintermelon-soup'),
     status: 'on',
-    sortNo: 9,
+    sortNo: 12,
     ingredients: [
-      { name: '东北大米', amount: 300, unit: 'g', role: 'main', note: '选圆粒珍珠米最糯' },
-      { name: '清水', amount: 360, unit: 'ml', role: 'sub', note: '米水比 1:1.2' }
+      { name: '肋排', amount: 500, unit: 'g', role: 'main', note: '切 4cm 段' },
+      { name: '冬瓜', amount: 400, unit: 'g', role: 'main', note: '去皮去囊，切 3cm 厚片' },
+      { name: '生姜', amount: 1, unit: '块', role: 'sub', note: '切片' },
+      { name: '小葱', amount: 2, unit: '根', role: 'sub', note: '一根打结，一根切葱花' },
+      { name: '枸杞', amount: 10, unit: '粒', role: 'sub', note: '最后 5 分钟放' }
     ],
-    seasonings: [],
+    seasonings: [
+      { name: '盐', amountText: '4g', brandNote: '最后调，分两次加' },
+      { name: '花雕酒', amountText: '10ml', brandNote: '焯水去腥' },
+      { name: '白胡椒粉', amountText: '2g', brandNote: '出锅撒，暖胃' }
+    ],
     steps: [
-      { description: '大米用清水淘洗 2 次，水变澄清就停，别多淘（淘多了营养流失）', durationMinutes: 1, needTimer: false, heatTip: '', tip: '手指插进去搅动，水变浑就换' },
-      { description: '加 360ml 清水（米水比 1:1.2），静置浸泡 20 分钟让米粒吸饱水', durationMinutes: 20, needTimer: true, heatTip: '', tip: '浸泡是米饭更软糯的关键，别省' },
-      { description: '放入电饭煲，按标准煮饭模式（不要用快煮），盖好盖子', durationMinutes: 25, needTimer: true, heatTip: '', tip: '煮饭模式比快煮模式多 10 分钟焖，口感更好' },
-      { description: '跳闸后**不要立刻开盖**，焖 5 分钟让热气回滴，米饭更均匀', durationMinutes: 5, needTimer: true, heatTip: '保温状态焖', tip: '焖完开盖用饭勺轻轻翻松，颗粒分明' }
+      { description: '排骨冷水下锅，加姜片 + 花雕酒 10ml，水开后微沸 5 分钟，撇净浮沫，捞出用温水冲洗干净', durationMinutes: 5, needTimer: true, heatTip: '大火烧开转微沸', tip: '温水冲，冷水冲会让肉收缩发柴' },
+      { description: '排骨放入汤锅，加 1500ml 清水 + 姜片 + 葱结，大火烧开后转小火盖盖炖 40 分钟', durationMinutes: 40, needTimer: true, heatTip: '小火 95°C 微沸', tip: '汤要清就不能大火滚，保持微沸' },
+      { description: '冬瓜去皮去囊切 3cm 厚片，下锅继续炖 15 分钟至冬瓜变透明', durationMinutes: 15, needTimer: true, heatTip: '小火', tip: '冬瓜厚切，煮久了才不会烂成泥' },
+      { description: '加盐 4g 调味（先加 3g尝味再补），放枸杞再煮 5 分钟', durationMinutes: 5, needTimer: true, heatTip: '小火', tip: '盐一定最后放，早放肉会紧' },
+      { description: '关火撒白胡椒粉和葱花，撇掉表面浮油，盛碗趁热喝', durationMinutes: 1, needTimer: false, heatTip: '关火', tip: '撇油后汤更清爽，老人小孩都能喝' }
     ]
   },
 
+  /* ================== 主食 2 道 ================== */
   {
     id: 'd-fried-rice',
     name: '黄金蛋炒饭',
@@ -354,7 +474,7 @@ export const seedDishes = [
     allergens: '无',
     mainImage: img('dish-fried-rice'),
     status: 'on',
-    sortNo: 10,
+    sortNo: 13,
     ingredients: [
       { name: '隔夜米饭', amount: 400, unit: 'g', role: 'main', note: '冷藏一晚水分更少，最好炒' },
       { name: '鸡蛋', amount: 2, unit: '个', role: 'main', note: '打散' },
@@ -375,7 +495,41 @@ export const seedDishes = [
     ]
   },
 
-  /* ================== 素菜 2 道 ================== */
+  {
+    id: 'd-noodles',
+    name: '葱油拌面',
+    category: '主食',
+    intro: '一碗葱香四溢的老上海味道，东西不多但极香',
+    prepMinutes: 5,
+    cookMinutes: 15,
+    difficulty: '易',
+    servings: 2,
+    allergens: '含小麦',
+    mainImage: img('dish-noodles'),
+    status: 'on',
+    sortNo: 14,
+    ingredients: [
+      { name: '细挂面', amount: 250, unit: 'g', role: 'main', note: '细面更容易挂上葱油' },
+      { name: '小葱', amount: 8, unit: '根', role: 'main', note: '葱白葱绿分开切段' },
+      { name: '开洋（虾米）', amount: 10, unit: 'g', role: 'sub', note: '温水泡 10 分钟（可选）' }
+    ],
+    seasonings: [
+      { name: '生抽', amountText: '30ml', brandNote: '推荐六月鲜' },
+      { name: '老抽', amountText: '10ml', brandNote: '上色，别多' },
+      { name: '白糖', amountText: '10g', brandNote: '提鲜，不能省' },
+      { name: '食用油', amountText: '60ml', brandNote: '熬葱油用，菜籽油最香' },
+      { name: '盐', amountText: '1g', brandNote: '煮面用' }
+    ],
+    steps: [
+      { description: '小葱洗净彻底晾干（一定不能带水，否则炸油会炸锅），葱白切 4cm 段，葱绿切长段分开放', durationMinutes: 3, needTimer: false, heatTip: '', tip: '带水下锅会溅油，擦干再切' },
+      { description: '冷油下葱白，全程最小火慢炸 8 分钟，炸到葱白变浅褐色，再下葱绿炸 3 分钟至微焦，捞出葱段备用', durationMinutes: 11, needTimer: true, heatTip: '最小火 110°C', tip: '葱油不能急，火大葱会苦，小火才甜香' },
+      { description: '葱油锅里关火稍晾，加生抽 30ml + 老抽 10ml + 白糖 10g，再开小火煮 1 分钟至糖化，倒出备用（这就是葱油汁）', durationMinutes: 2, needTimer: false, heatTip: '小火', tip: '热油直接倒酱油会猛烈冒泡，稍晾一下更安全' },
+      { description: '另起锅烧水，水大开加 1g 盐下挂面，按包装时间煮（一般 3-4 分钟），捞出**不要过水**，直接沥干', durationMinutes: 4, needTimer: true, heatTip: '大火沸水', tip: '面不要过冷水，热面才能吸住葱油' },
+      { description: '面条倒入碗中，淋 2-3 勺葱油汁，撒上炸好的葱段和泡软的虾米，拌匀开吃。拌的时候会"哗啦"响，就是对了', durationMinutes: 1, needTimer: false, heatTip: '', tip: '面要趁热拌，凉了就拌不开' }
+    ]
+  },
+
+  /* ================== 素菜 3 道 ================== */
   {
     id: 'd-broccoli',
     name: '蒜蓉西兰花',
@@ -388,7 +542,7 @@ export const seedDishes = [
     allergens: '无',
     mainImage: img('dish-broccoli'),
     status: 'on',
-    sortNo: 11,
+    sortNo: 15,
     ingredients: [
       { name: '西兰花', amount: 400, unit: 'g', role: 'main', note: '掰小朵，底部粗茎切薄片' },
       { name: '大蒜', amount: 6, unit: '瓣', role: 'sub', note: '5 瓣切末 + 1 瓣拍扁爆香' }
@@ -418,7 +572,7 @@ export const seedDishes = [
     allergens: '无',
     mainImage: img('dish-bok-choy'),
     status: 'on',
-    sortNo: 12,
+    sortNo: 16,
     ingredients: [
       { name: '娃娃菜', amount: 2, unit: '棵', role: 'main', note: '选包得紧的，叶子亮' },
       { name: '大蒜', amount: 6, unit: '瓣', role: 'sub', note: '切末，留 1 瓣切蒜片' },
@@ -439,7 +593,42 @@ export const seedDishes = [
     ]
   },
 
-  /* ================== 甜品 2 道 ================== */
+  {
+    id: 'd-cabbage',
+    name: '手撕包菜',
+    category: '素菜',
+    intro: '干香带锅气，包菜边焦边脆，饭店味在家做',
+    prepMinutes: 6,
+    cookMinutes: 6,
+    difficulty: '易',
+    servings: 2,
+    allergens: '无',
+    mainImage: img('dish-cabbage'),
+    status: 'on',
+    sortNo: 17,
+    ingredients: [
+      { name: '包菜', amount: 400, unit: 'g', role: 'main', note: '选松散的尖包菜，手撕成小片' },
+      { name: '大蒜', amount: 4, unit: '瓣', role: 'sub', note: '切片' },
+      { name: '干辣椒', amount: 4, unit: '个', role: 'sub', note: '剪段，怕辣可去籽' },
+      { name: '五花肉片', amount: 30, unit: 'g', role: 'sub', note: '可选，加点更香' }
+    ],
+    seasonings: [
+      { name: '生抽', amountText: '10ml', brandNote: '' },
+      { name: '香醋', amountText: '5ml', brandNote: '沿锅边淋，增锅气' },
+      { name: '白糖', amountText: '2g', brandNote: '提鲜' },
+      { name: '盐', amountText: '2g', brandNote: '' },
+      { name: '食用油', amountText: '15ml', brandNote: '' }
+    ],
+    steps: [
+      { description: '包菜去掉硬芯，用手撕成 5cm 小片（手撕的断面不规则，比刀切更容易挂汁），洗净后**彻底沥干**', durationMinutes: 4, needTimer: false, heatTip: '', tip: '带水下锅会变成水煮包菜，一点锅气都没有' },
+      { description: '锅烧到冒烟，下油滑锅倒出，再下 15ml 冷油，这样铁锅不粘', durationMinutes: 1, needTimer: false, heatTip: '大火烧锅', tip: '热锅冷油是炒包菜不粘的关键' },
+      { description: '下五花肉片（可选）煸出油，再下蒜片和干辣椒段，小火煸 20 秒出香', durationMinutes: 0.5, needTimer: false, heatTip: '小火', tip: '辣椒别炒黑，黑了整盘发苦' },
+      { description: '转**最大火**倒入包菜，快速翻炒 90 秒，看到边缘出现焦边、菜叶变软就对了', durationMinutes: 1.5, needTimer: true, heatTip: '大火 200°C', tip: '全程大火快炒，慢炒出水就废了' },
+      { description: '沿锅边淋香醋 5ml（"激"一下出香），加盐 2g + 生抽 10ml + 白糖 2g，翻炒 20 秒就出锅', durationMinutes: 0.5, needTimer: false, heatTip: '大火', tip: '醋沿锅边淋而不是倒菜上，锅气全在这一下' }
+    ]
+  },
+
+  /* ================== 甜品 3 道 ================== */
   {
     id: 'd-tremella',
     name: '银耳雪梨羹',
@@ -452,7 +641,7 @@ export const seedDishes = [
     allergens: '无',
     mainImage: img('dish-tremella'),
     status: 'on',
-    sortNo: 13,
+    sortNo: 18,
     ingredients: [
       { name: '干银耳', amount: 1, unit: '朵', role: 'main', note: '选金黄色的，不要白的（白的可能漂过）' },
       { name: '雪梨', amount: 1, unit: '个', role: 'main', note: '选鸭梨最甜，去皮去核切小块' },
@@ -483,7 +672,7 @@ export const seedDishes = [
     allergens: '含乳制品',
     mainImage: img('dish-mango'),
     status: 'on',
-    sortNo: 14,
+    sortNo: 19,
     ingredients: [
       { name: '成熟芒果', amount: 2, unit: '个', role: 'main', note: '选黄透的台农或小台农，果肉约 300g' },
       { name: '吉利丁片', amount: 10, unit: 'g', role: 'sub', note: '约 2 片半，用冰水泡软' },
@@ -502,6 +691,37 @@ export const seedDishes = [
       { description: '加淡奶油 + 芒果泥，搅匀成均匀的芒果糊，过筛去掉未融化的颗粒', durationMinutes: 2, needTimer: false, heatTip: '', tip: '过筛后更细腻，不过筛也能吃' },
       { description: '倒入碗或杯子，表面用保鲜膜封住（防冷凝水滴落），放冰箱冷藏 2 小时以上', durationMinutes: 120, needTimer: true, heatTip: '冰箱 4°C', tip: '冷藏够 2 小时才会凝固成型，急着吃也别少于 1.5 小时' },
       { description: '取出可以撒芒果丁、薄荷叶或椰蓉装饰', durationMinutes: 0.5, needTimer: false, heatTip: '' }
+    ]
+  },
+
+  {
+    id: 'd-red-bean-soup',
+    name: '桂花红豆沙',
+    category: '甜品',
+    intro: '绵密沙糯，热乎一碗最熨帖，还能当汤圆底',
+    prepMinutes: 10,
+    cookMinutes: 70,
+    difficulty: '易',
+    servings: 4,
+    allergens: '无',
+    mainImage: img('dish-red-bean-soup'),
+    status: 'on',
+    sortNo: 20,
+    ingredients: [
+      { name: '红豆', amount: 200, unit: 'g', role: 'main', note: '选细长的赤小豆更易出沙' },
+      { name: '陈皮', amount: 1, unit: '小块', role: 'sub', note: '约 2g，没有可省略' }
+    ],
+    seasonings: [
+      { name: '冰糖', amountText: '60g', brandNote: '黄冰糖更润，按口味增减' },
+      { name: '清水', amountText: '1200ml', brandNote: '分两次加' },
+      { name: '干桂花', amountText: '2g', brandNote: '关火后撒，香气最足' }
+    ],
+    steps: [
+      { description: '红豆淘洗干净，用清水泡 2 小时（赶时间可省略，但要多煮 20 分钟）。**不要提前加糖**', durationMinutes: 120, needTimer: true, heatTip: '', tip: '糖会让红豆表皮变硬，煮再久也不出沙' },
+      { description: '红豆连泡水倒入锅中，加清水 1000ml + 陈皮，大火烧开后转最小火盖盖煮 40 分钟', durationMinutes: 40, needTimer: true, heatTip: '小火 95°C', tip: '陈皮能去豆腥还解腻，老广做法' },
+      { description: '开盖检查：豆子一捏就烂就对了，用勺子背把豆子压碎一部分，留一部分完整的有口感', durationMinutes: 2, needTimer: false, heatTip: '', tip: '压碎一部分是"沙"的关键，全压成泥就变成豆泥了' },
+      { description: '加冰糖 60g + 清水 200ml，边搅边煮 10 分钟至糖化、汤汁浓稠挂勺', durationMinutes: 10, needTimer: true, heatTip: '小火', tip: '中途多搅，红豆沙很容易糊底' },
+      { description: '关火撒干桂花 2g，盖盖焖 3 分钟让香气融进去，盛碗。冷藏后加椰浆也很好吃', durationMinutes: 3, needTimer: true, heatTip: '关火焖', tip: '桂花遇高温香气会跑，一定关火后放' }
     ]
   }
 ];
@@ -529,7 +749,7 @@ export function seedOrders(now = new Date()) {
       createdAt: t(12),
       items: [
         { id: 'oi-3', dishId: 'd-kungpao', dishName: '宫保鸡丁', dishImage: img('dish-kungpao'), servings: 2, note: '多放花生', status: 'pending' },
-        { id: 'oi-4', dishId: 'd-rice', dishName: '米饭', dishImage: img('dish-rice'), servings: 3, note: '', status: 'pending' }
+        { id: 'oi-4', dishId: 'd-fried-rice', dishName: '黄金蛋炒饭', dishImage: img('dish-fried-rice'), servings: 2, note: '', status: 'pending' }
       ]
     }
   ];
