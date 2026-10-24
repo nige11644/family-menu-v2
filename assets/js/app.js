@@ -286,12 +286,12 @@ function pageJoin() {
       <p class="join-desc">第一次打开填一次家庭码和昵称，以后直接进。</p>
       <form id="join-form" novalidate>
         <label class="field">
-          <span class="label">家庭码 <span class="hint">家庭群里发的 6 位码</span></span>
-          <input class="input" name="code" id="join-code" placeholder="例如 HOME66" autocomplete="off" autocapitalize="characters" maxlength="12">
-        </label>
-        <label class="field">
           <span class="label">你的昵称</span>
           <input class="input" name="nickname" id="join-name" placeholder="例如 妈妈" maxlength="12" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="label">家庭码 <span class="hint">家庭群里发的 6 位码</span></span>
+          <input class="input" name="code" id="join-code" placeholder="例如 HOME66" autocomplete="off" autocapitalize="characters" maxlength="12">
         </label>
         <div class="form-error" id="join-error"></div>
         <button class="btn" type="submit">进入家宴</button>
