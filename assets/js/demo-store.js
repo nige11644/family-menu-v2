@@ -246,6 +246,39 @@ class DemoStore {
     return url;
   }
 
+  // ---- 房间成员（演示模式：只有本机这一位） ----
+  async listRoomMembers() {
+    const s = this.getSession();
+    if (!s) return [];
+    const fm = s.families.find((x) => x.familyId === s.currentFamilyId);
+    return [{
+      userId: s.userId || 'me-demo',
+      nickname: s.nickname || '家人',
+      role: fm?.role ?? 0,
+      avatar: s.avatar || '',
+      alias: '',
+      isAbsent: false,
+      status: 'active',
+      joinedAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString()
+    }];
+  }
+  async touchMember() { /* 演示模式没有活跃心跳 */ }
+  async setMemberAlias(userId, alias) {
+    const m = (await this.listRoomMembers())[0];
+    if (m && m.userId === userId) m.alias = alias || '';
+  }
+  async setMemberAbsent(userId, absent) {
+    const m = (await this.listRoomMembers())[0];
+    if (m && m.userId === userId) m.isAbsent = !!absent;
+  }
+  async setMemberStatus() { throw new Error('演示模式不支持归档'); }
+  presenceIds() {
+    const s = this.getSession();
+    return new Set(s?.userId ? [s.userId] : []);
+  }
+  async nudgeMembers() { return 0; }
+
   // ---- 菜品 ----
   async listDishes() {
     return clone(this._db().dishes);

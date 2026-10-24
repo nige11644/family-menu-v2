@@ -33,6 +33,9 @@ const state = {
   diceRevealId: '',          // 已播过揭晓动画的局 id，避免重复渲染时反复翻转
   diceTimer: null,           // 60 秒倒计时定时器
   diceRolling: false,        // 骰子请求进行中（防重复点击）
+  members: [],               // 房间成员（room_members RPC 返回）
+  membersLoaded: false,      // 成员数据是否可用（members.sql 未执行时为 false）
+  presenceIds: new Set(),    // 当前在线成员 userId
   routeName: '',
   ready: false
 };
@@ -125,12 +128,30 @@ async function boot() {
   state.session = state.store.getSession();
   console.log('[boot] mode=', state.mode, 'session=', JSON.stringify(state.session));
   state.cart = loadCart();
+  // 进入家宴先把「最后活跃」写一次，再拉成员列表，厨师端才能显示准确时间
+  await state.store.touchMember?.().catch(() => {});
   await refreshData(true);
   state.ready = true;
   render();
   window.addEventListener('hashchange', render);
   state.store.subscribe(onRealtime);
+  state.presenceIds = state.store.presenceIds?.() || new Set();
+  startMemberHeartbeat();
   registerSW();
+}
+
+// 低频心跳：每 60 秒（仅前台）更新一次最后活跃时间，断网/关页面由 Presence 负责
+let memberHeartbeat = null;
+function startMemberHeartbeat() {
+  if (!state.store.touchMember) return;
+  const tick = () => {
+    if (document.visibilityState === 'visible') state.store.touchMember().catch(() => {});
+  };
+  clearInterval(memberHeartbeat);
+  memberHeartbeat = setInterval(tick, 60_000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tick();
+  });
 }
 
 function registerSW() {
@@ -184,6 +205,27 @@ async function refreshData(silent = false) {
 
   // 放在 try 之外：即使菜品/订单加载失败，骰子入口也要能正常判断
   await loadDice(true);
+  // 厨师端才需要完整成员列表；家人端不额外增加请求
+  if (state.session?.role === 1) await loadMembers(true);
+}
+
+/* 读取房间成员（members.sql 未执行时返回 null，成员页显示执行提示） */
+async function loadMembers(silent = true) {
+  if (!state.store.listRoomMembers || !state.session) {
+    state.members = [];
+    state.membersLoaded = false;
+    return;
+  }
+  try {
+    const rows = await state.store.listRoomMembers();
+    state.membersLoaded = rows !== null;
+    state.members = rows || [];
+    state.presenceIds = state.store.presenceIds?.() || new Set();
+  } catch (err) {
+    state.membersLoaded = false;
+    state.members = [];
+    if (!silent) toast(err.message || '成员加载失败', { duration: 3000 });
+  }
 }
 
 /* 读取摇骰子状态（dice.sql 未执行 / 演示模式时静默隐藏入口） */
@@ -205,8 +247,39 @@ async function loadDice(silent = true) {
 }
 
 let refreshTimer = null;
+let presenceTimer = null;
+let membersTimer = null;
 function onRealtime(event) {
   if (!state.ready || event.type === 'profile') return;
+
+  // 在线状态（Presence）：只更新成员页，不重拉订单
+  if (event.type === 'presence') {
+    state.presenceIds = state.store.presenceIds?.() || new Set();
+    if (currentPath() === '/chef/members') {
+      clearTimeout(presenceTimer);
+      presenceTimer = setTimeout(() => { if (currentPath() === '/chef/members') renderPreserveScroll(); }, 350);
+    }
+    return;
+  }
+
+  // 成员备注 / 缺席 / 归档变化
+  if (event.type === 'members') {
+    clearTimeout(membersTimer);
+    membersTimer = setTimeout(async () => {
+      await loadMembers(true);
+      if (currentPath() === '/chef/members') renderPreserveScroll();
+    }, 160);
+    return;
+  }
+
+  // 厨师「催单」广播：只针对被点名的在线家人
+  if (event.type === 'nudge') {
+    if (state.session?.role !== 1 && Array.isArray(event.userIds) && event.userIds.includes(state.session?.userId)) {
+      showNudgeBanner(event.from);
+    }
+    return;
+  }
+
   // 骰子局变化：只刷新骰子状态，避免整页订单重新拉取
   if (event.type === 'dice') {
     clearTimeout(refreshTimer);
@@ -267,6 +340,20 @@ function showNewReviewBanner(review) {
   setTimeout(() => el.remove(), 6000);
 }
 
+function showNudgeBanner(from) {
+  document.querySelector('.nudge-banner')?.remove();
+  const el = document.createElement('div');
+  el.className = 'new-order-banner nudge-banner';
+  el.innerHTML = `<span class="nr-flower">👨‍🍳</span><div class="nb-text"><b>${esc(from || '主厨')}</b> 喊你点菜啦～<br>今晚想吃什么？</div><button>去点菜</button>`;
+  document.body.appendChild(el);
+  el.querySelector('button').addEventListener('click', () => {
+    el.remove();
+    go('/menu');
+  });
+  beep('soft');
+  setTimeout(() => el.remove(), 8000);
+}
+
 /* ============ 路由 ============ */
 function currentPath() {
   const p = location.hash.replace(/^#/, '');
@@ -317,6 +404,8 @@ function render() {
     html = pageChefSummary();
   } else if (path === '/chef/dishes') {
     html = pageChefDishes();
+  } else if (path === '/chef/members') {
+    html = pageChefMembers();
   } else if (m(/^\/chef\/dish\/([^/]+)\/recipe$/)) {
     html = pageRecipeEdit(m(/^\/chef\/dish\/([^/]+)\/recipe$/)[1]);
   } else if (m(/^\/chef\/dish\/([^/]+)$/)) {
@@ -343,6 +432,7 @@ function renderPreserveScroll() {
   else if (path === '/chef') html = pageChefBoard();
   else if (path === '/chef/summary') html = pageChefSummary();
   else if (path === '/chef/dishes') html = pageChefDishes();
+  else if (path === '/chef/members') html = pageChefMembers();
   else if (path === '/settings') html = pageSettings();
   else if (/^\/chef\/dish\/[^/]+\/recipe$/.test(path)) html = pageRecipeEdit(path.split('/')[3]);
   else if (/^\/chef\/dish\/[^/]+$/.test(path)) html = pageDishEdit(path.split('/')[3]);
@@ -366,6 +456,7 @@ function bindPage(path, isRefresh = false) {
   else if (path === '/chef') bindChefBoard();
   else if (path === '/chef/summary') bindRefresh();
   else if (path === '/chef/dishes') bindChefDishes();
+  else if (path === '/chef/members') bindChefMembers();
   else if (/^\/chef\/dish\/[^/]+\/recipe$/.test(path)) bindRecipeEdit(path.split('/')[3]);
   else if (/^\/chef\/dish\/[^/]+$/.test(path)) bindDishEdit(path.split('/')[3]);
   else if (path === '/settings') bindSettings();
@@ -377,7 +468,7 @@ function bindPage(path, isRefresh = false) {
 /* ============ 通用片段 ============ */
 function navBar(kind) {
   const items = kind === 'chef'
-    ? [['/chef', '接单', 'bowl'], ['/chef/summary', '汇总', 'list'], ['/chef/dishes', '菜品', 'edit'], ['/settings', '我的', 'settings']]
+    ? [['/chef', '接单', 'bowl'], ['/chef/summary', '汇总', 'list'], ['/chef/dishes', '菜品', 'edit'], ['/chef/members', '成员', 'users'], ['/settings', '我的', 'settings']]
     : [['/menu', '菜单', 'bowl'], ['/orders', '点菜单', 'receipt'], ['/settings', '我的', 'settings']];
   const path = currentPath();
   return `<nav class="nav">${items.map(([href, label, ic]) => `
@@ -1983,6 +2074,230 @@ function bindChefBoard() {
     card.querySelector('[data-accept]')?.addEventListener('click', () => changeDishStatus(dishId, 'cooking'));
     card.querySelector('[data-finish]')?.addEventListener('click', () => changeDishStatus(dishId, 'done'));
   });
+}
+
+/* ============ 厨师端 · 房间成员 ============ */
+// 本餐点菜统计：按 userId 聚合今天的有效明细
+function roomOrderStats() {
+  const map = new Map();
+  state.orders.forEach((o) => {
+    if (!o.userId || o.status === 'cancelled' || !isToday(o.createdAt)) return;
+    o.items.forEach((i) => {
+      if (i.status === 'cancelled') return;
+      const cur = map.get(o.userId) || { count: 0, servings: 0, items: [] };
+      cur.count += 1;
+      cur.servings += i.servings;
+      cur.items.push(i);
+      map.set(o.userId, cur);
+    });
+  });
+  return map;
+}
+
+const memberName = (m) => m.alias || m.nickname;
+
+function memberCardHtml(m, online, stats) {
+  const isMe = m.userId === state.session?.userId;
+  const count = stats?.count || 0;
+  const name = memberName(m);
+  return `<button class="mem-card ${online ? 'online' : 'offline'} ${m.isAbsent ? 'absent' : ''}" data-member="${esc(m.userId)}">
+    <div class="mem-card-top">
+      ${avatarCircle({ avatar: m.avatar, nickname: m.nickname }, 'sm')}
+      <div class="mem-id">
+        <div class="mem-name">${esc(name)}${m.role === 1 ? '<span class="mem-badge chef">厨师</span>' : ''}${isMe ? '<span class="mem-badge me">我</span>' : ''}</div>
+        <div class="mem-role">${m.alias ? `原名 ${esc(m.nickname)}` : (m.role === 1 ? '掌勺人' : '家人')}${m.isAbsent ? ' · 已缺席' : ''}</div>
+      </div>
+      <span class="mem-dot" data-online="${online ? 1 : 0}"></span>
+    </div>
+    <div class="mem-card-foot">
+      <span class="mem-dish ${count ? '' : 'none'}">${count ? `已点 ${count} 道` : '还没点'}</span>
+      <span class="mem-time">${m.lastSeenAt ? timeAgo(m.lastSeenAt) : '—'}</span>
+    </div>
+  </button>`;
+}
+
+function pageChefMembers() {
+  const members = state.members || [];
+  const online = state.presenceIds || new Set();
+  const stats = roomOrderStats();
+  const active = members.filter((m) => m.status !== 'archived');
+  const history = members.filter((m) => m.status === 'archived');
+  const present = active.filter((m) => online.has(m.userId));
+  const ordered = active.filter((m) => (stats.get(m.userId)?.count || 0) > 0);
+  const notOrdered = active.filter((m) => m.role !== 1 && !m.isAbsent && !(stats.get(m.userId)?.count));
+  const notOrderedOnline = notOrdered.filter((m) => online.has(m.userId));
+  const totalDishes = [...stats.values()].reduce((n, x) => n + x.count, 0);
+  const avg = ordered.length ? (totalDishes / ordered.length).toFixed(1) : '0';
+  const top = active
+    .map((m) => ({ name: memberName(m), count: stats.get(m.userId)?.count || 0 }))
+    .filter((x) => x.count > 0)
+    .sort((a, b) => b.count - a.count)[0];
+  const nameCount = new Map();
+  active.forEach((m) => nameCount.set(memberName(m), (nameCount.get(memberName(m)) || 0) + 1));
+  const hasDup = [...nameCount.values()].some((n) => n > 1);
+  const rows = active.slice().sort((a, b) => {
+    const d = (online.has(b.userId) ? 1 : 0) - (online.has(a.userId) ? 1 : 0);
+    if (d) return d;
+    return new Date(b.lastSeenAt || 0) - new Date(a.lastSeenAt || 0);
+  });
+
+  const body = !state.membersLoaded
+    ? `<div class="empty mem-empty">
+        <div class="em-mark">${icon('users', 26)}</div>
+        <h4>成员数据还没就绪</h4>
+        <p>在 Supabase SQL Editor 执行 <b>supabase/members.sql</b>，刷新后就能看到全部家人。</p>
+      </div>`
+    : `<div class="mem-overview">
+        <div class="mem-stats">
+          <div class="ms-item"><b>${present.length}</b><span>在场</span></div>
+          <div class="ms-item"><b>${ordered.length}</b><span>已点菜</span></div>
+          <div class="ms-item"><b>${history.length}</b><span>历史成员</span></div>
+        </div>
+        <div class="mem-total">本餐 ${ordered.length} 人参与 · 共点 ${totalDishes} 道 · 人均 ${avg} 道</div>
+        ${top ? `<div class="mem-topline">最积极：<b>${esc(top.name)}</b>（${top.count} 道）</div>` : ''}
+        ${notOrdered.length ? `<div class="mem-waiting">还没点：${notOrdered.map((m) => esc(memberName(m))).join('、')}</div>` : ''}
+        ${hasDup ? `<div class="mem-dup">有重名成员，点卡片改个备注就能区分</div>` : ''}
+        ${notOrderedOnline.length ? `<button class="btn mem-nudge-btn" id="mem-nudge">🔔 催一下还没点的 ${notOrderedOnline.length} 人</button>` : ''}
+      </div>
+      <div class="mem-section-title">在场成员 <span>${active.length}</span></div>
+      ${rows.length
+        ? `<div class="mem-grid">${rows.map((m) => memberCardHtml(m, online.has(m.userId), stats.get(m.userId))).join('')}</div>`
+        : `<div class="empty"><div class="em-mark">${icon('users', 26)}</div><h4>这个家庭还没有成员</h4><p>把家庭码发给家人，进来就会出现在这里</p></div>`}
+      ${history.length ? `<details class="mem-history">
+        <summary>📚 历史成员（${history.length}）</summary>
+        ${history.map((m) => `<div class="mem-hist-row">
+          ${avatarCircle({ avatar: m.avatar, nickname: m.nickname }, 'sm')}
+          <div class="mh-main">
+            <div class="mh-name">${esc(memberName(m))}</div>
+            <div class="mh-sub">${m.lastSeenAt ? `${timeAgo(m.lastSeenAt)}活跃` : '很久没来'}</div>
+          </div>
+          <button class="btn ghost mh-restore" data-restore="${esc(m.userId)}">恢复到在场</button>
+        </div>`).join('')}
+      </details>` : ''}`;
+
+  return `<div class="page">
+    ${pageTopbar({
+      title: '房间成员',
+      right: `<button class="icon-btn" data-refresh-members aria-label="刷新">${icon('refresh', 20)}</button>`
+    })}
+    ${body}
+    ${navBar('chef')}
+  </div>`;
+}
+
+function openAliasSheet(m) {
+  const { close } = openSheet({
+    title: '改备注',
+    sub: `只对厨师可见，原名 ${m.nickname}`,
+    body: `<label class="field"><span class="label">备注名</span>
+      <input class="input" id="member-alias" maxlength="12" value="${esc(m.alias || '')}" placeholder="例如：二姨">
+    </label>`,
+    footer: `<button class="btn ghost" data-sheet-close>取消</button><button class="btn" id="save-alias">保存</button>`
+  });
+  document.getElementById('save-alias')?.addEventListener('click', async () => {
+    const v = document.getElementById('member-alias')?.value.trim() || '';
+    try {
+      await state.store.setMemberAlias(m.userId, v);
+      close();
+      await loadMembers(true);
+      renderPreserveScroll();
+      toast('备注已更新', { type: 'success', duration: 1500 });
+    } catch (err) { toast(err.message || '改备注失败', { duration: 3000 }); }
+  });
+}
+
+function openMemberSheet(m) {
+  if (!m) return;
+  const stats = roomOrderStats().get(m.userId);
+  const items = stats?.items || [];
+  const online = state.presenceIds.has(m.userId);
+  const isMe = m.userId === state.session?.userId;
+  const name = memberName(m);
+  const { sheet, close } = openSheet({
+    title: name,
+    sub: `${m.role === 1 ? '厨师' : '家人'} · ${online ? '在线' : '离线'}${m.isAbsent ? ' · 已缺席' : ''}`,
+    body: `<div class="mem-sheet-user">
+        ${avatarCircle({ avatar: m.avatar, nickname: m.nickname }, 'sm')}
+        <div><div class="msu-name">${esc(m.nickname)}</div><div class="msu-sub">${m.alias ? `备注：${esc(m.alias)}` : '本餐点菜明细'}</div></div>
+      </div>
+      <div class="mem-order-box">
+        <div class="mob-title">本餐点菜</div>
+        ${items.length
+          ? `<ul class="mob-list">${items.map((i) => `<li><span>${esc(i.dishName)}</span><b>×${i.servings}</b></li>`).join('')}</ul>`
+          : `<p class="mob-none">还没点菜${online ? '，可以催一下' : '（现在不在线）'}</p>`}
+      </div>
+      <div class="mem-actions">
+        <button class="mem-act" data-act="alias">✏ 改备注${m.alias ? `（${esc(m.alias)}）` : ''}</button>
+        ${m.role === 1 ? '' : `<button class="mem-act" data-act="absent">${m.isAbsent ? '✅ 恢复出席' : '🚫 标记缺席'}</button>`}
+        ${isMe ? '' : `<button class="mem-act danger" data-act="archive">📦 归档到历史</button>`}
+      </div>`,
+    footer: `<button class="btn ghost" data-sheet-close>关闭</button>`
+  });
+
+  sheet.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
+    const act = btn.dataset.act;
+    if (act === 'alias') {
+      close();
+      openAliasSheet(m);
+      return;
+    }
+    if (act === 'archive') {
+      close();
+      const ok = await confirmSheet({
+        title: '归档成员',
+        message: `把 ${name} 放进历史成员？点菜记录会完整保留，之后还能恢复。`,
+        confirmText: '归档'
+      });
+      if (!ok) return;
+    }
+    try {
+      if (act === 'absent') await state.store.setMemberAbsent(m.userId, !m.isAbsent);
+      if (act === 'archive') await state.store.setMemberStatus(m.userId, 'archived');
+      close();
+      await loadMembers(true);
+      renderPreserveScroll();
+      toast(act === 'absent' ? (m.isAbsent ? '已恢复出席' : '已标记缺席') : '已归档', { type: 'success', duration: 1500 });
+    } catch (err) { toast(err.message || '操作失败', { duration: 3000 }); }
+  }));
+}
+
+function bindChefMembers() {
+  document.querySelector('[data-refresh-members]')?.addEventListener('click', async () => {
+    await loadMembers(false);
+    renderPreserveScroll();
+    toast('已刷新', { duration: 1200 });
+  });
+
+  document.querySelectorAll('[data-member]').forEach((card) => {
+    card.addEventListener('click', () => {
+      openMemberSheet((state.members || []).find((m) => m.userId === card.dataset.member));
+    });
+  });
+
+  document.getElementById('mem-nudge')?.addEventListener('click', async () => {
+    const stats = roomOrderStats();
+    const targets = (state.members || []).filter((m) => m.status !== 'archived'
+      && m.role !== 1
+      && !m.isAbsent
+      && state.presenceIds.has(m.userId)
+      && !(stats.get(m.userId)?.count));
+    if (!targets.length) return toast('现在没有在线的待点菜家人');
+    const n = await state.store.nudgeMembers?.(targets.map((m) => m.userId)) || 0;
+    toast(n ? `已提醒 ${n} 位在线的家人 👋` : '提醒没发出去，稍后再试', {
+      type: n ? 'success' : undefined,
+      duration: 2200
+    });
+  });
+
+  document.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try {
+      await state.store.setMemberStatus(b.dataset.restore, 'active');
+      await loadMembers(true);
+      renderPreserveScroll();
+      toast('已恢复到在场', { type: 'success', duration: 1500 });
+    } catch (err) { toast(err.message || '操作失败', { duration: 3000 }); }
+  }));
 }
 
 /* 家庭切换弹层 */

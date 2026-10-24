@@ -116,6 +116,9 @@ export class CloudStore {
     this._listeners = new Set();
     this._channel = null;
     this._reviewChannel = null;
+    this._membersChannel = null;
+    this._presenceChannel = null;
+    this._presenceFamilyId = null;
   }
 
   getSetupState() {
@@ -345,6 +348,7 @@ export class CloudStore {
   }
 
   async logout() {
+    await this.stopPresence();
     try { await this.client?.auth.signOut(); } catch (_) { /* ignore */ }
     this.session = null;
   }
@@ -392,6 +396,133 @@ export class CloudStore {
       .eq('user_id', this.session.userId);
     if (error) throw friendly(error);
     this.session.pushKey = key;
+  }
+
+  /* ---------- 厨师端房间成员 ---------- */
+  // members.sql 未执行时返回 null，页面显示「先执行 SQL」的提示，不影响其他功能
+  async listRoomMembers() {
+    const fid = this.getCurrentFamilyId();
+    if (!fid) return [];
+    const { data, error } = await this.client.rpc('room_members', { p_family_id: fid });
+    if (error) {
+      if (/could not find the function|does not exist|PGRST202/i.test(error.message || '')) return null;
+      throw friendly(error);
+    }
+    return (data || []).map((m) => ({
+      userId: m.user_id,
+      nickname: m.nickname || '家人',
+      role: m.role ?? 0,
+      avatar: m.avatar || '',
+      alias: m.alias || '',
+      isAbsent: !!m.is_absent,
+      status: m.status || 'active',
+      joinedAt: m.joined_at,
+      lastSeenAt: m.last_seen_at
+    }));
+  }
+
+  // 进入家宴 / 回到前台时更新活跃时间；SQL 未执行时静默跳过
+  async touchMember() {
+    const fid = this.getCurrentFamilyId();
+    if (!fid) return;
+    const { error } = await this.client.rpc('touch_member', { p_family_id: fid });
+    if (error && !/could not find the function|does not exist|PGRST202/i.test(error.message || '')) throw friendly(error);
+  }
+
+  async setMemberAlias(userId, alias) {
+    const { error } = await this.client.rpc('member_set_alias', {
+      p_family_id: this.getCurrentFamilyId(),
+      p_user_id: userId,
+      p_alias: alias || ''
+    });
+    if (error) throw friendly(error);
+    this._emit('members');
+  }
+
+  async setMemberAbsent(userId, absent) {
+    const { error } = await this.client.rpc('member_set_absent', {
+      p_family_id: this.getCurrentFamilyId(),
+      p_user_id: userId,
+      p_absent: !!absent
+    });
+    if (error) throw friendly(error);
+    this._emit('members');
+  }
+
+  async setMemberStatus(userId, status) {
+    const { error } = await this.client.rpc('member_set_status', {
+      p_family_id: this.getCurrentFamilyId(),
+      p_user_id: userId,
+      p_status: status
+    });
+    if (error) throw friendly(error);
+    this._emit('members');
+  }
+
+  /* ---------- 在线状态（Realtime Presence） ---------- */
+  async startPresence() {
+    const fid = this.session?.currentFamilyId;
+    if (!fid || !this.session) {
+      await this.stopPresence();
+      return;
+    }
+    if (this._presenceChannel && this._presenceFamilyId === fid) return;
+    await this.stopPresence();
+    this._presenceFamilyId = fid;
+    const ch = this.client.channel(`room-${fid}`, {
+      config: { presence: { key: this._userId } }
+    });
+    ch.on('presence', { event: 'sync' }, () => this._emit('presence'))
+      .on('presence', { event: 'join' }, () => this._emit('presence'))
+      .on('presence', { event: 'leave' }, () => this._emit('presence'))
+      // 厨师「催单」：不落库，直接广播给在线成员
+      .on('broadcast', { event: 'nudge' }, (payload) => this._emit('nudge', payload));
+    this._presenceChannel = ch;
+    ch.subscribe((status) => {
+      if (status !== 'SUBSCRIBED') return;
+      try {
+        ch.track({
+          nickname: this.session?.nickname || '家人',
+          role: this.session?.role ?? 0,
+          at: new Date().toISOString()
+        });
+      } catch (_) { /* ignore */ }
+    });
+  }
+
+  async stopPresence() {
+    if (this._presenceChannel) {
+      try { await this.client.removeChannel(this._presenceChannel); } catch (_) { /* ignore */ }
+    }
+    this._presenceChannel = null;
+    this._presenceFamilyId = null;
+  }
+
+  presenceIds() {
+    try {
+      const st = this._presenceChannel?.presenceState?.() || {};
+      return new Set(Object.keys(st));
+    } catch (_) {
+      return new Set();
+    }
+  }
+
+  async nudgeMembers(userIds) {
+    if (!this._presenceChannel || !userIds?.length) return 0;
+    try {
+      await this._presenceChannel.send({
+        type: 'broadcast',
+        event: 'nudge',
+        payload: {
+          userIds,
+          from: this.session?.nickname || '主厨',
+          at: Date.now()
+        }
+      });
+      return userIds.length;
+    } catch (_) {
+      return 0;
+    }
   }
 
   /* ---------- 摇骰子定洗碗人 ---------- */
@@ -672,6 +803,10 @@ export class CloudStore {
       try { this.client.removeChannel(this._diceChannel); } catch (_) { /* ignore */ }
       this._diceChannel = null;
     }
+    if (this._membersChannel) {
+      try { this.client.removeChannel(this._membersChannel); } catch (_) { /* ignore */ }
+      this._membersChannel = null;
+    }
     const familyId = this.session?.currentFamilyId;
     if (!familyId || this._listeners.size === 0) return;
     this._channel = this.client
@@ -684,6 +819,11 @@ export class CloudStore {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'review', filter: `family_id=eq.${familyId}` }, () => this._emit('reviews'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_feedback', filter: `family_id=eq.${familyId}` }, () => this._emit('reviews'))
       .subscribe();
+    // 成员备注 / 缺席 / 归档变化：厨师多设备之间同步
+    this._membersChannel = this.client
+      .channel(`members-${familyId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'family_member', filter: `family_id=eq.${familyId}` }, () => this._emit('members'))
+      .subscribe();
     // 骰子局只在 dice.sql 已执行后才订阅，避免表不存在时刷控制台错误
     if (this._diceReady) {
       this._diceChannel = this.client
@@ -691,6 +831,8 @@ export class CloudStore {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'dice_game', filter: `family_id=eq.${familyId}` }, () => this._emit('dice'))
         .subscribe();
     }
+    // 在线状态：与成员列表共用一个 Presence 频道（断线/关页面自动离线）
+    this.startPresence();
   }
 
   subscribe(fn) {

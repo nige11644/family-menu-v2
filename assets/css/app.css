@@ -1991,3 +1991,213 @@ a[href*='netlify'] { display: none !important; }
 .dice-missing { text-align: center; padding: 60px 20px; font-size: 13px; line-height: 1.7; color: var(--muted); }
 .dice-missing .dm-emoji { font-size: 40px; margin-bottom: 12px; }
 .dice-missing code { font-size: 12px; background: var(--paper-2); padding: 2px 6px; border-radius: 6px; }
+
+/* ============ 厨师端 · 房间成员 ============ */
+.mem-overview {
+  margin: 14px 18px 8px;
+  padding: 16px 16px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(70, 50, 30, .05);
+}
+.mem-stats { display: flex; }
+.mem-stats .ms-item {
+  flex: 1;
+  text-align: center;
+  position: relative;
+}
+.mem-stats .ms-item + .ms-item::before {
+  content: '';
+  position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 1px; background: var(--line);
+}
+.mem-stats .ms-item b {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+}
+.mem-stats .ms-item span { display: block; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+.mem-total {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  text-align: center;
+}
+.mem-topline, .mem-waiting, .mem-dup {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.mem-topline b { color: var(--accent-dark); font-weight: 600; }
+.mem-waiting { color: var(--ink-2); }
+.mem-dup { color: var(--amber); }
+.mem-nudge-btn {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.mem-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 18px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.mem-section-title span { font-weight: 500; }
+
+.mem-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 18px;
+}
+.mem-card {
+  display: block;
+  width: 100%;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  text-align: left;
+  font-family: inherit;
+  color: var(--ink);
+  transition: transform .12s ease, border-color .12s ease;
+}
+.mem-card:active { transform: scale(.98); border-color: var(--line-strong); }
+.mem-card.offline { background: #fdfaf5; }
+.mem-card.absent { opacity: .62; }
+.mem-card.online { border-color: #d9e6dc; }
+.mem-card-top { display: flex; align-items: flex-start; gap: 9px; }
+.mem-id { flex: 1; min-width: 0; }
+.mem-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mem-badge {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.mem-badge.chef { background: var(--accent-soft); color: var(--accent-dark); }
+.mem-badge.me { background: var(--paper-2); color: var(--ink-2); }
+.mem-role {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mem-dot {
+  flex: 0 0 auto;
+  width: 8px; height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.mem-dot[data-online="1"] { background: #5fa471; box-shadow: 0 0 0 3px rgba(95, 164, 113, .16); }
+.mem-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+.mem-dish { font-size: 11.5px; color: var(--accent-dark); font-weight: 500; }
+.mem-dish.none { color: var(--muted); font-weight: 400; }
+.mem-time { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+.mem-history {
+  margin: 18px 18px 0;
+  padding: 4px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fdfaf5;
+}
+.mem-history summary {
+  padding: 11px 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  list-style: none;
+}
+.mem-history summary::-webkit-details-marker { display: none; }
+.mem-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.mh-main { flex: 1; min-width: 0; }
+.mh-name { font-size: 13px; font-weight: 500; }
+.mh-sub { margin-top: 2px; font-size: 11px; color: var(--muted); }
+.mh-restore { height: 30px; padding: 0 10px; font-size: 11.5px; }
+
+.mem-sheet-user {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 2px 0 14px;
+}
+.msu-name { font-size: 15px; font-weight: 600; }
+.msu-sub { margin-top: 3px; font-size: 12px; color: var(--muted); }
+.mem-order-box {
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fdfaf5;
+}
+.mob-title { font-size: 11.5px; letter-spacing: .06em; color: var(--muted); }
+.mob-list { margin: 9px 0 0; padding: 0; list-style: none; }
+.mob-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 13.5px;
+}
+.mob-list li + li { border-top: 1px dashed var(--line); }
+.mob-list li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mob-list li b { color: var(--ink-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+.mob-none { margin: 10px 0 2px; font-size: 12.5px; color: var(--muted); }
+.mem-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.mem-act {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13.5px;
+  text-align: left;
+}
+.mem-act:active { background: var(--paper-2); }
+.mem-act.danger { color: var(--accent-dark); border-color: #edd6cb; background: #fffaf7; }
+
+.nudge-banner { background: var(--accent); }
+.nudge-banner .nb-text b { color: #fff; }
+.mem-empty { margin-top: 60px; }
