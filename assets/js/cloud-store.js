@@ -222,6 +222,23 @@ export class CloudStore {
     return this.session.families;
   }
 
+  // 家庭成员头像（需先执行 supabase/avatar-share.sql；未执行时静默返回空）
+  async listFamilyAvatars() {
+    const fid = this.getCurrentFamilyId();
+    if (!fid) return [];
+    const { data, error } = await this.client.rpc('family_avatars', { p_family_id: fid });
+    if (error) {
+      if (/could not find the function|does not exist|PGRST202/i.test(error.message || '')) return [];
+      throw friendly(error);
+    }
+    return (data || []).map((m) => ({
+      userId: m.user_id,
+      nickname: m.nickname || '',
+      role: m.role ?? 0,
+      avatar: m.avatar || ''
+    }));
+  }
+
   /* ---------- 家庭 ---------- */
   async createFamily({ name, nickname }) {
     const famName = (name || '我家').trim().slice(0, 16);

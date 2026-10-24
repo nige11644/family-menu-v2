@@ -16,6 +16,7 @@ const state = {
   currentFamily: null,       // 当前选中的家庭 { id, name, joinCode }
   dishes: [],
   orders: [],
+  avatarMap: new Map(),      // 家庭成员头像：userId -> avatar key
   cart: [],
   detailCache: new Map(),
   menuCategory: '全部',
@@ -48,6 +49,12 @@ function avatarCircle(s, size = '') {
   const cls = `avatar${size ? ` ${size}` : ''}`;
   if (p) return `<span class="${cls}" style="background:${p.bg}"><span class="av-emoji">${p.emoji}</span></span>`;
   return `<span class="${cls}">${esc((s?.nickname || '我').slice(0, 1))}</span>`;
+}
+
+// 家人头像：按 userId 查当前家庭头像表，查不到就回落到昵称首字
+function memberAvatar(userId, nickname, size = 'xs') {
+  const av = (userId && state.avatarMap.get(userId)) || '';
+  return avatarCircle({ avatar: av, nickname }, size);
 }
 
 /* ============ 启动 ============ */
@@ -111,9 +118,14 @@ async function refreshData(silent = false) {
       }
     }
 
-    const [dishes, orders] = await Promise.all([state.store.listDishes(), state.store.listOrders()]);
+    const [dishes, orders, members] = await Promise.all([
+      state.store.listDishes(),
+      state.store.listOrders(),
+      state.store.listFamilyAvatars ? state.store.listFamilyAvatars().catch(() => []) : Promise.resolve([])
+    ]);
     state.dishes = dishes;
     state.orders = orders;
+    state.avatarMap = new Map((members || []).map((m) => [m.userId, m.avatar || '']));
     state.detailCache.clear();
 
     // 好评上下文：review.sql 未执行时静默跳过，不影响点菜主流程
@@ -1022,7 +1034,7 @@ function submittedHtml() {
     const cancelled = o.status === 'cancelled';
     return `<div class="order-card ${cancelled ? 'cancelled' : ''}">
       <div class="oc-head">
-        <span class="oc-time">${fmtTime(o.createdAt)} 提交 ${o.userName ? `· ${esc(o.userName)}` : ''}</span>
+        <span class="oc-time">${fmtTime(o.createdAt)} 提交 ${o.userName ? `<span class="oc-user">· ${memberAvatar(o.userId, o.userName)}${esc(o.userName)}</span>` : ''}</span>
         <span class="status ${meta.cls}"><i></i>${meta.label}</span>
       </div>
       <div class="oc-items">
@@ -1164,6 +1176,7 @@ function reviewCardHtml(r, { compact = false } = {}) {
   const tags = (r.tags || []).map((t) => `<span class="rtag-mini">${esc(t)}</span>`).join('');
   return `<article class="review-card ${r.mine ? 'mine' : ''}">
     <div class="rc-head">
+      ${memberAvatar(r.isAnonymous ? '' : r.userId, r.nickname)}
       <b>${esc(r.nickname)}${r.mine ? '<i>我</i>' : ''}</b>
       <span class="rc-stars">${starsText(r.rating)}</span>
       <span class="rc-time">${r.createdAt ? fmtTime(r.createdAt) : ''}</span>
@@ -1459,7 +1472,7 @@ function activeGroups() {
       }
       const g = groups.get(it.dishId);
       g.servings += it.servings;
-      g.users.push({ name: o.userName, servings: it.servings });
+      g.users.push({ name: o.userName, servings: it.servings, userId: o.userId });
       if (it.note) g.notes.push(`${o.userName}：${it.note}`);
       if (it.status === 'cooking') g.status = 'cooking';
       if (new Date(o.createdAt) < new Date(g.createdAt)) g.createdAt = o.createdAt;
@@ -1476,7 +1489,7 @@ function doneGroups() {
       if (!groups.has(it.dishId)) groups.set(it.dishId, { dishId: it.dishId, name: it.dishName, image: it.dishImage, servings: 0, users: [] });
       const g = groups.get(it.dishId);
       g.servings += it.servings;
-      g.users.push({ name: o.userName, servings: it.servings });
+      g.users.push({ name: o.userName, servings: it.servings, userId: o.userId });
     });
   });
   return [...groups.values()];
@@ -1484,8 +1497,14 @@ function doneGroups() {
 
 function groupCardHtml(g, done) {
   const sources = {};
-  g.users.forEach((u) => { sources[u.name] = (sources[u.name] || 0) + u.servings; });
-  const srcText = Object.entries(sources).map(([n, s]) => `${esc(n)} ${s} 份`).join(' · ');
+  g.users.forEach((u) => {
+    const key = u.userId || u.name;
+    if (!sources[key]) sources[key] = { name: u.name, userId: u.userId, servings: 0 };
+    sources[key].servings += u.servings;
+  });
+  const srcText = Object.values(sources)
+    .map((u) => `<span class="src-user">${memberAvatar(u.userId, u.name)}${esc(u.name)} ${u.servings} 份</span>`)
+    .join('<span class="src-sep">·</span>');
   const isCooking = g.status === 'cooking';
   return `<article class="group ${done ? 'done' : ''}" data-dish="${esc(g.dishId)}">
     <div class="group-head">
@@ -1831,7 +1850,7 @@ function pageChefSummary() {
       ${todayOrders.length ? todayOrders.map((o) => `
         <div class="order-card">
           <div class="oc-head">
-            <span class="oc-time">${fmtTime(o.createdAt)} · ${esc(o.userName)}</span>
+            <span class="oc-time oc-user">${fmtTime(o.createdAt)} · ${memberAvatar(o.userId, o.userName)}${esc(o.userName)}</span>
             <span class="status ${statusMeta(o.status).cls}"><i></i>${statusMeta(o.status).label}</span>
           </div>
           <div class="oc-items">${o.items.map((it) => `
