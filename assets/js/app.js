@@ -371,9 +371,10 @@ function bindJoin() {
 }
 
 /* ============ C02 菜单首页 ============ */
-function visibleDishes() {
+function visibleDishes(cat) {
+  const c = cat === undefined ? state.menuCategory : cat;
   let list = state.dishes.filter((d) => d.status !== 'off');
-  if (state.menuCategory !== '全部') list = list.filter((d) => d.category === state.menuCategory);
+  if (c !== '全部') list = list.filter((d) => d.category === c);
   const q = state.menuQuery.trim();
   if (q) {
     list = list.filter((d) => `${d.name}${d.intro}${d.category}`.toLowerCase().includes(q.toLowerCase()));
@@ -385,8 +386,8 @@ function cartQtyOf(dishId) {
   return state.cart.reduce((s, c) => s + (c.dishId === dishId ? c.servings : 0), 0);
 }
 
-function dishGridHtml() {
-  const list = visibleDishes();
+function dishGridHtml(cat) {
+  const list = visibleDishes(cat);
   if (!list.length) {
     return `<div class="empty">
       <div class="em-mark">${icon('search', 26)}</div>
@@ -410,6 +411,19 @@ function dishGridHtml() {
         <span>${icon('clock', 12)}</span><span>${d.cookMinutes || 0} 分钟</span>
       </div>
     </a>`; }).join('')}</div>`;
+}
+
+/* 菜单主体：搜索时是单一筛选网格；平时是分类横滑页（每类一整页） */
+function menuBodyHtml() {
+  if (state.menuQuery.trim()) return dishGridHtml();
+  const categories = ['全部', ...CATEGORIES];
+  const activeIdx = Math.max(0, categories.indexOf(state.menuCategory));
+  return `<div class="swipe-dots" id="menu-dots">${categories.map((c, i) => `<span class="dot${i === activeIdx ? ' active' : ''}"></span>`).join('')}</div>
+  <div class="menu-swipe" id="menu-swipe">
+    <div class="menu-swipe-track" id="menu-swipe-track">
+      ${categories.map((c) => `<div class="menu-swipe-page">${dishGridHtml(c)}</div>`).join('')}
+    </div>
+  </div>`;
 }
 
 function cartBarHtml() {
@@ -450,7 +464,7 @@ function pageMenu() {
     <div class="chips" id="menu-chips">
       ${categories.map((c) => `<button class="chip ${state.menuCategory === c ? 'active' : ''}" data-cat="${c}">${c}</button>`).join('')}
     </div>
-    <div id="menu-grid">${dishGridHtml()}</div>
+    <div id="menu-body">${menuBodyHtml()}</div>
     ${cartBarHtml()}
     ${navBar('family')}
   </div>`;
@@ -465,8 +479,51 @@ function bindMenu() {
     if (state.families.length > 1) openFamilyPicker({ allowCreate: false });
   });
 
-  // 菜单卡片快捷加菜：+1 份（无备注），不跳详情
+  bindQuickAdd();
+  bindMenuSwipe();
+
+  // 分类标签：平时滑动翻页，搜索时只筛选静态网格
+  document.querySelectorAll('#menu-chips .chip').forEach((b) => {
+    b.addEventListener('click', () => {
+      if (state.menuQuery.trim()) {
+        state.menuCategory = b.dataset.cat;
+        syncMenuChips();
+        renderMenuBody();
+      } else {
+        menuSwipeGoTo(b.dataset.cat);
+      }
+    });
+  });
+
+  const input = document.getElementById('menu-search');
+  input?.addEventListener('input', debounce(() => {
+    state.menuQuery = input.value;
+    document.getElementById('menu-search-wrap').classList.toggle('filled', !!input.value);
+    renderMenuBody();
+  }, 160));
+  document.getElementById('menu-clear')?.addEventListener('click', () => {
+    state.menuQuery = '';
+    input.value = '';
+    document.getElementById('menu-search-wrap').classList.remove('filled');
+    renderMenuBody();
+    input.focus();
+  });
+}
+
+function syncMenuChips() {
+  document.querySelectorAll('#menu-chips .chip').forEach((x) => {
+    const on = x.dataset.cat === state.menuCategory;
+    x.classList.toggle('active', on);
+    // 让选中标签滚进可视区（block:nearest 避免页面纵向滚动）
+    if (on) x.scrollIntoView({ block: 'nearest', inline: 'center' });
+  });
+}
+
+/* 菜单卡片快捷加菜：+1 份（无备注），不跳详情 */
+function bindQuickAdd() {
   document.querySelectorAll('[data-quick-add]').forEach((b) => {
+    if (b.dataset.bound) return;
+    b.dataset.bound = '1';
     b.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -479,29 +536,155 @@ function bindMenu() {
       renderPreserveScroll();
     });
   });
-
-  document.querySelectorAll('#menu-chips .chip').forEach((b) => {
-    b.addEventListener('click', () => {
-      state.menuCategory = b.dataset.cat;
-      document.querySelectorAll('#menu-chips .chip').forEach((x) => x.classList.toggle('active', x === b));
-      document.getElementById('menu-grid').innerHTML = dishGridHtml();
-    });
-  });
-
-  const input = document.getElementById('menu-search');
-  input?.addEventListener('input', debounce(() => {
-    state.menuQuery = input.value;
-    document.getElementById('menu-search-wrap').classList.toggle('filled', !!input.value);
-    document.getElementById('menu-grid').innerHTML = dishGridHtml();
-  }, 160));
-  document.getElementById('menu-clear')?.addEventListener('click', () => {
-    state.menuQuery = '';
-    input.value = '';
-    document.getElementById('menu-search-wrap').classList.remove('filled');
-    document.getElementById('menu-grid').innerHTML = dishGridHtml();
-    input.focus();
-  });
 }
+
+/* 搜索/分类变化时重绘菜单主体，并按需重新挂滑动 */
+function renderMenuBody() {
+  const body = document.getElementById('menu-body');
+  if (!body) return;
+  body.innerHTML = menuBodyHtml();
+  bindQuickAdd();
+  bindMenuSwipe();
+}
+
+/* ============ 菜单分类横滑（触摸滑动 + PC 鼠标兼容） ============ */
+const MENU_SWIPE_THRESHOLD = 40;   // 翻页阈值：拖动超过 40px 才翻页
+const MENU_SWIPE_DAMPING = 0.35;   // 边界阻尼系数
+const menuSwipe = {
+  el: null, track: null, dots: null,
+  width: 0, dragging: false, startX: 0, startY: 0, deltaX: 0, dir: null, lastDrag: 0
+};
+
+function menuSwipeCats() { return ['全部', ...CATEGORIES]; }
+
+function menuSwipeIndex() {
+  return Math.max(0, menuSwipeCats().indexOf(state.menuCategory));
+}
+
+/* 翻到指定分类；animate:false 用于初始化/搜索返回时无动画归位 */
+function menuSwipeGoTo(cat, opts = {}) {
+  const { track, dots, el } = menuSwipe;
+  if (!track) return;
+  const categories = menuSwipeCats();
+  const i = Math.max(0, categories.indexOf(cat));
+  state.menuCategory = categories[i];
+  if (opts.animate === false) track.classList.add('dragging');
+  track.style.transform = `translateX(${-i * menuSwipe.width}px)`;
+  if (opts.animate === false) { void track.offsetWidth; track.classList.remove('dragging'); }
+  // 各页高度不同：容器高度同步到当前页
+  const page = track.children[i];
+  if (el && page) el.style.height = page.offsetHeight + 'px';
+  // 分页圆点选中态
+  if (dots) [...dots.children].forEach((d, j) => d.classList.toggle('active', j === i));
+  syncMenuChips();
+}
+
+function menuSwipePoint(e) {
+  const t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX, y: t.clientY };
+}
+
+function menuSwipeStart(e) {
+  if (menuSwipe.dragging || !menuSwipe.track) return;
+  menuSwipe.dragging = true;
+  menuSwipe.dir = null;
+  menuSwipe.deltaX = 0;
+  const p = menuSwipePoint(e);
+  menuSwipe.startX = p.x;
+  menuSwipe.startY = p.y;
+  menuSwipe.lastDrag = 0;
+  menuSwipe.track.classList.add('dragging'); // 跟手：拖动中关过渡动画
+}
+
+function menuSwipeMove(e) {
+  if (!menuSwipe.dragging || !menuSwipe.track) return;
+  const p = menuSwipePoint(e);
+  const dx = p.x - menuSwipe.startX;
+  const dy = p.y - menuSwipe.startY;
+  // 方向锁：横向位移更大才接管，纵向则放行页面滚动
+  if (menuSwipe.dir === null && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+    menuSwipe.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+  }
+  if (menuSwipe.dir !== 'h') return;
+  e.preventDefault(); // 阻止纵向滚动穿透（需 passive:false）
+  menuSwipe.deltaX = dx;
+  const i = menuSwipeIndex();
+  const total = menuSwipeCats().length;
+  let offset = dx;
+  // 边界阻尼：第一页往右拉 / 最后一页往左拉，拉得动但翻不动
+  if ((i === 0 && dx > 0) || (i === total - 1 && dx < 0)) offset = dx * MENU_SWIPE_DAMPING;
+  menuSwipe.track.style.transform = `translateX(${-i * menuSwipe.width + offset}px)`;
+}
+
+function menuSwipeEnd() {
+  if (!menuSwipe.dragging) return;
+  menuSwipe.dragging = false;
+  if (!menuSwipe.track) return;
+  menuSwipe.track.classList.remove('dragging');
+  const categories = menuSwipeCats();
+  const i = menuSwipeIndex();
+  if (menuSwipe.dir === 'h') {
+    if (menuSwipe.deltaX < -MENU_SWIPE_THRESHOLD && i < categories.length - 1) {
+      menuSwipeGoTo(categories[i + 1]);       // 左滑超阈值 → 下一分类
+    } else if (menuSwipe.deltaX > MENU_SWIPE_THRESHOLD && i > 0) {
+      menuSwipeGoTo(categories[i - 1]);       // 右滑超阈值 → 上一分类
+    } else {
+      menuSwipeGoTo(categories[i]);           // 未超阈值/边界 → 弹回
+    }
+  } else {
+    menuSwipeGoTo(categories[i], { animate: false });
+  }
+  // 记录本次拖动距离，供 click 拦截器判断（在下一次 onStart 清零）
+  menuSwipe.lastDrag = Math.abs(menuSwipe.deltaX);
+  menuSwipe.deltaX = 0;
+  menuSwipe.dir = null;
+}
+
+function bindMenuSwipe() {
+  const wrap = document.getElementById('menu-swipe');
+  const track = document.getElementById('menu-swipe-track');
+  if (!wrap || !track) { menuSwipe.el = null; menuSwipe.track = null; return; }
+  menuSwipe.el = wrap;
+  menuSwipe.track = track;
+  menuSwipe.dots = document.getElementById('menu-dots');
+  menuSwipe.width = wrap.clientWidth;
+  // 无动画归位到当前分类 + 同步高度/圆点/标签
+  menuSwipeGoTo(state.menuCategory, { animate: false });
+
+  wrap.addEventListener('touchstart', menuSwipeStart, { passive: true });
+  wrap.addEventListener('touchmove', menuSwipeMove, { passive: false });
+  wrap.addEventListener('touchend', menuSwipeEnd);
+  wrap.addEventListener('touchcancel', menuSwipeEnd);
+
+  // PC 鼠标拖拽兼容
+  wrap.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    menuSwipeStart(e);
+    const move = (ev) => menuSwipeMove(ev);
+    const up = () => {
+      menuSwipeEnd();
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+
+  // 翻页/拖动手势后抑制误点菜品卡片（>8px 即视为滑动）
+  wrap.addEventListener('click', (e) => {
+    if (menuSwipe.lastDrag > 8) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+}
+
+// 横竖屏切换/窗口缩放：重新量宽并无动画归位
+window.addEventListener('resize', () => {
+  if (!menuSwipe.el || !menuSwipe.el.isConnected) return;
+  menuSwipe.width = menuSwipe.el.clientWidth;
+  menuSwipeGoTo(state.menuCategory, { animate: false });
+});
 
 /* ============ 菜品详情 ============ */
 function findDish(id) {

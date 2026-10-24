@@ -464,6 +464,36 @@ select.input { appearance: none; background-image: none; }
   transition: transform .6s cubic-bezier(.2, .75, .3, 1);
 }
 .dish-card:active .thumb img { transform: scale(1.04); }
+
+/* ---- 菜单分类横滑 ---- */
+.swipe-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 0 10px;
+}
+.swipe-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: width .3s ease-out, background .3s ease-out;
+}
+.swipe-dots .dot.active { width: 16px; background: var(--accent); }
+.menu-swipe {
+  overflow: hidden;
+  touch-action: pan-y;          /* 纵向滚动交给浏览器，横向 JS 接管 */
+  user-select: none;
+  -webkit-user-select: none;
+  transition: height .3s ease-out;  /* 各分类页高度不同，切换时平滑过渡 */
+}
+.menu-swipe-track {
+  display: flex;
+  transition: transform .3s ease-out;
+  will-change: transform;
+}
+.menu-swipe-track.dragging { transition: none; }  /* 拖动中关动画保证跟手 */
+.menu-swipe-page { width: 100%; flex-shrink: 0; }
 .dish-card h3 {
   margin: 9px 2px 3px;
   font-size: 15px;
