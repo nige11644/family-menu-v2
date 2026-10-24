@@ -134,6 +134,7 @@ async function boot() {
   await state.store.touchMember?.().catch(() => {});
   await refreshData(true);
   state.ready = true;
+  hintCodeLessLink();
   render();
   window.addEventListener('hashchange', render);
   state.store.subscribe(onRealtime);
@@ -141,6 +142,17 @@ async function boot() {
   startMemberHeartbeat();
   registerSW();
   maybePromptInviteLink();
+}
+
+// 在微信里直接「发送给朋友」转发的当前页面链接不带 ?code=，
+// 收到的人只会看到空的加入页，看上去像「邀请链接失效」，这里给一句提示
+function hintCodeLessLink() {
+  if (state.session) return;
+  try {
+    if (new URLSearchParams(location.search).has('code')) return;
+  } catch (_) { return; }
+  if (!/^#\/(settings|menu|orders|chef|rewards)/.test(location.hash || '')) return;
+  toast('这个邀请链接没带家庭码，请让家人点「复制邀请文案」重新发一次', { duration: 5200 });
 }
 
 // 已经在某个家庭时打开邀请链接：询问是否要切过去
@@ -2565,9 +2577,24 @@ function openInviteSheet() {
   const url = `${location.origin}${location.pathname}?code=${encodeURIComponent(code)}`;
   const text = `来「${name}」点菜啦！\n家庭码：${code}\n点开链接填码就能点：${url}`;
 
+  // 微信里没有 Web Share，家人往往直接点右上角「··· → 发送给朋友」，
+  // 而微信转发的是「当前地址」。面板打开期间把家庭码写进地址栏，
+  // 这样转发出去的链接才会自带 ?code=，对方打开就能自动填码
+  const inviteHref = new URL(location.href);
+  inviteHref.searchParams.set('code', code);
+  try { history.replaceState(null, '', inviteHref.toString()); } catch (_) {}
+  const restoreHref = () => {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('code');
+      history.replaceState(null, '', u.toString());
+    } catch (_) {}
+  };
+
   const { sheet, close } = openSheet({
     title: '邀请家人来点菜',
     sub: '家人填一次家庭码和昵称，以后直接进',
+    onClose: restoreHref,
     body: `<div class="invite-card">
         <div class="invite-label">家庭码</div>
         <div class="invite-code">${esc(code)}</div>
@@ -2575,7 +2602,7 @@ function openInviteSheet() {
       </div>
       <button class="btn" id="invite-share" style="width:100%">📤 分享给家人</button>
       <button class="btn ghost" id="invite-copy" style="width:100%;margin-top:8px">复制邀请文案</button>
-      <p class="invite-tip">在微信里如果没弹出分享面板，点右上角「···」→ 发送给朋友，或直接用「复制邀请文案」粘贴到家庭群。</p>`,
+      <p class="invite-tip">微信里不会弹出系统分享面板。要转发给家人：保持这个面板打开，点右上角「···」→「发送给朋友」，此时链接已带家庭码；或直接点「复制邀请文案」粘贴到家庭群。</p>`,
     footer: `<button class="btn ghost" data-sheet-close>关闭</button>`
   });
 
