@@ -1,7 +1,8 @@
 /** 演示模式 v2：多家庭（厨师可服务多家），数据存本机 + BroadcastChannel 同步 */
 import { seedDishes } from './seed.js';
 
-const KEY = 'fm_demo_data_v2';
+// 数据版本号：内置菜品有更新时递增，避免老设备沿用旧演示数据（旧的 14 道菜 / 已删除的米饭）
+const KEY = 'fm_demo_data_v3';
 const SESSION_KEY = 'fm_demo_session_v2';
 const CHANNEL = 'fm_demo_sync_v2';
 
