@@ -23,6 +23,9 @@ const state = {
   chefQuery: '',
   chefStatus: 'all',
   chefTab: 'active',
+  reviewContext: null,       // 好评上下文（review_context RPC 返回）
+  reviewDraft: null,         // 好评表单草稿（按 session 缓存）
+  reviewEditing: false,      // 已送好评后是否正在修改
   routeName: '',
   ready: false
 };
@@ -92,6 +95,13 @@ async function refreshData(silent = false) {
     state.dishes = dishes;
     state.orders = orders;
     state.detailCache.clear();
+
+    // 好评上下文：review.sql 未执行时静默跳过，不影响点菜主流程
+    if (state.store.reviewContext) {
+      state.reviewContext = await state.store.reviewContext().catch(() => null);
+    } else {
+      state.reviewContext = null;
+    }
   } catch (err) {
     if (!silent) toast(err.message || '加载失败', { duration: 4000 });
   }
@@ -103,11 +113,20 @@ function onRealtime(event) {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(async () => {
     const prevIds = new Set(state.orders.map((o) => o.id));
+    const prevReviewIds = new Set((state.reviewContext?.todayReviews || []).map((r) => r.id));
     await refreshData(true);
     const fresh = state.orders.find((o) => !prevIds.has(o.id) && o.status !== 'done');
     if (fresh && state.session?.role === 1 && fresh.userName !== state.session.nickname) {
       showNewOrderBanner(fresh);
       beep('new');
+    }
+    if (event.type === 'reviews' && state.session?.role === 1) {
+      const freshReview = (state.reviewContext?.todayReviews || []).find((r) => !prevReviewIds.has(r.id) && !r.mine);
+      if (freshReview) {
+        showNewReviewBanner(freshReview);
+        beep('new');
+        haptic(15);
+      }
     }
     if (!/^\/chef\/dish\//.test(currentPath())) renderPreserveScroll();
   }, 160);
@@ -126,6 +145,20 @@ function showNewOrderBanner(order) {
     go('/chef');
   });
   setTimeout(() => el.remove(), 5000);
+}
+
+function showNewReviewBanner(review) {
+  document.querySelector('.new-review-banner')?.remove();
+  const el = document.createElement('div');
+  el.className = 'new-order-banner new-review-banner';
+  const stars = '★'.repeat(review.rating) + '☆'.repeat(5 - review.rating);
+  el.innerHTML = `<span class="nr-flower">🌸</span><div class="nb-text"><b>${esc(review.nickname)}</b> 送来了 ${stars}<br>${esc(review.comment || '家人的好评')}</div><button>去看看</button>`;
+  document.body.appendChild(el);
+  el.querySelector('button').addEventListener('click', () => {
+    el.remove();
+    go('/chef/summary');
+  });
+  setTimeout(() => el.remove(), 6000);
 }
 
 /* ============ 路由 ============ */
@@ -167,6 +200,8 @@ function render() {
     html = pageRecipe(m(/^\/recipe\/([^/]+)$/)[1]);
   } else if (path === '/orders') {
     html = pageOrders();
+  } else if (path === '/review') {
+    html = pageReview();
   } else if (path === '/chef') {
     state.routeName = 'chef';
     html = pageChefBoard();
@@ -195,6 +230,7 @@ function renderPreserveScroll() {
   let html = '';
   if (path === '/menu') html = pageMenu();
   else if (path === '/orders') html = pageOrders();
+  else if (path === '/review') html = pageReview();
   else if (path === '/chef') html = pageChefBoard();
   else if (path === '/chef/summary') html = pageChefSummary();
   else if (path === '/chef/dishes') html = pageChefDishes();
@@ -214,12 +250,14 @@ function bindPage(path, isRefresh = false) {
   else if (path.startsWith('/dish/')) bindDish(path.split('/')[2]);
   else if (path.startsWith('/recipe/')) bindRecipe(path.split('/')[2]);
   else if (path === '/orders') bindOrders();
+  else if (path === '/review') bindReview();
   else if (path === '/chef') bindChefBoard();
   else if (path === '/chef/summary') bindRefresh();
   else if (path === '/chef/dishes') bindChefDishes();
   else if (/^\/chef\/dish\/[^/]+\/recipe$/.test(path)) bindRecipeEdit(path.split('/')[3]);
   else if (/^\/chef\/dish\/[^/]+$/.test(path)) bindDishEdit(path.split('/')[3]);
   else if (path === '/settings') bindSettings();
+  document.querySelectorAll('[data-go-review]').forEach((b) => b.addEventListener('click', () => go('/review')));
   bindNav();
 }
 
@@ -457,6 +495,7 @@ function pageMenu() {
         ${state.families.length > 1 ? `<span class="caret">${icon('chevron', 13)}</span>` : ''}
       </button>
     </div>
+    ${reviewEntryHtml()}
     <div class="search ${state.menuQuery ? 'filled' : ''}" id="menu-search-wrap">
       <span class="s-icon">${icon('search', 18)}</span>
       <input class="input" id="menu-search" placeholder="搜菜名，比如 番茄" value="${esc(state.menuQuery)}" autocomplete="off">
@@ -1008,6 +1047,7 @@ function pageOrders() {
       <h1 class="orders-title">${state.cart.length ? '还没提交的菜' : '点菜单'}</h1>
       <p class="orders-sub">${esc(famName)} · 提交后厨师会收到提醒，状态会实时更新</p>
     </div>
+    ${reviewEntryHtml()}
     ${state.cart.length ? `
       <div class="cart-list">${state.cart.map(cartItemHtml).join('')}</div>
       <div class="order-note">
@@ -1089,6 +1129,301 @@ function bindOrders() {
   });
 }
 
+/* ============ 好评 ============ */
+const REVIEW_TAGS = ['太丰盛了', '味道绝了', '辛苦啦', '分量刚好', '下次还办'];
+
+function ratingLabel(n) {
+  return ['还没打分', '不太满意', '一般般', '还不错', '很好吃', '太绝了'][n] || '';
+}
+
+function starsText(n) {
+  return '★'.repeat(n || 0) + '☆'.repeat(5 - (n || 0));
+}
+
+function reviewCardHtml(r, { compact = false } = {}) {
+  const tags = (r.tags || []).map((t) => `<span class="rtag-mini">${esc(t)}</span>`).join('');
+  return `<article class="review-card ${r.mine ? 'mine' : ''}">
+    <div class="rc-head">
+      <b>${esc(r.nickname)}${r.mine ? '<i>我</i>' : ''}</b>
+      <span class="rc-stars">${starsText(r.rating)}</span>
+      <span class="rc-time">${r.createdAt ? fmtTime(r.createdAt) : ''}</span>
+    </div>
+    ${tags ? `<div class="rc-tags">${tags}</div>` : ''}
+    ${r.comment ? `<p class="rc-comment">${compact ? esc(r.comment) : `“${esc(r.comment)}”`}</p>` : ''}
+  </article>`;
+}
+
+function reviewRankHtml(list, emptyText) {
+  if (!list || !list.length) return `<p class="rr-empty">${emptyText}</p>`;
+  return `<div class="review-rank">${list.map((x, i) => `
+    <div class="rr-row">
+      <span class="rr-no ${i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : ''}">${i + 1}</span>
+      ${x.dishImage ? imgTag(x.dishImage, 'rr-thumb') : '<span class="rr-thumb ph">🍲</span>'}
+      <span class="rr-name">${esc(x.dishName)}</span>
+      <span class="rr-num">${x.likeCount || 0} 好评</span>
+    </div>`).join('')}</div>`;
+}
+
+/* 菜单 / 点菜单页的好评入口（关席后才出现） */
+function reviewEntryHtml() {
+  const rc = state.reviewContext;
+  if (state.session?.role === 1) return '';
+  if (!rc?.isOpen || rc.myReview) return '';
+  return `<button class="review-entry" data-go-review>
+    <span class="re-flower">🌸</span>
+    <span class="re-text"><b>这顿饭怎么样？</b><small>给厨师送个好评，只要一分钟</small></span>
+    <span class="re-cta">去评价 ${icon('chevron', 15)}</span>
+  </button>`;
+}
+
+function reviewDraft() {
+  const rc = state.reviewContext;
+  const key = `${state.currentFamily?.id || ''}:${rc?.sessionId || 'none'}`;
+  if (!state.reviewDraft || state.reviewDraft.key !== key) {
+    const mr = rc?.myReview || {};
+    const fb = {};
+    (rc?.myFeedback || []).forEach((f) => {
+      fb[f.dishName] = { liked: !!f.liked, wantNext: !!f.wantNext };
+    });
+    state.reviewDraft = {
+      key,
+      rating: mr.rating || 0,
+      tags: mr.tags || [],
+      comment: mr.comment || '',
+      anonymous: !!mr.isAnonymous,
+      feedback: fb
+    };
+  }
+  return state.reviewDraft;
+}
+
+function pageReview() {
+  const rc = state.reviewContext;
+  const editing = state.reviewEditing;
+  const head = pageTopbar({ back: true, title: rc?.myReview && !editing ? '好评已送出' : '这顿饭怎么样？' });
+
+  if (!rc) {
+    return `<div class="page no-nav">
+      ${head}
+      <div class="empty">
+        <div class="em-mark">${icon('users', 26)}</div>
+        <h4>好评功能还没准备好</h4>
+        <p>${state.mode === 'cloud' ? '请先在 Supabase SQL Editor 执行 supabase/review.sql' : '体验模式不支持好评，连接 Supabase 后可用'}</p>
+      </div>
+    </div>`;
+  }
+
+  if (rc.myReview && !editing) {
+    return `<div class="page no-nav">
+      ${head}
+      ${reviewResultHtml(rc)}
+    </div>`;
+  }
+
+  if (!rc.isOpen) {
+    return `<div class="page no-nav">
+      ${head}
+      <div class="empty">
+        <div class="em-mark">${icon('clock', 26)}</div>
+        <h4>厨师还在忙</h4>
+        <p>关席之后就能给这顿饭送好评啦<br>（当天第一单满 2 小时也会自动开放）</p>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="page no-nav">
+    ${head}
+    ${reviewFormHtml(rc)}
+  </div>`;
+}
+
+function reviewFormHtml(rc) {
+  const d = reviewDraft();
+  const dishes = rc.todayDishes || [];
+  return `<div class="review-wrap">
+    <div class="review-hero">
+      <div class="rh-flower">🌸</div>
+      <h1>这顿饭怎么样？</h1>
+      <p>${esc(state.currentFamily?.name || '家宴')} · 今天 ${dishes.length} 道菜</p>
+    </div>
+
+    <div class="star-picker" id="review-stars">
+      ${[1, 2, 3, 4, 5].map((n) => `<button class="rstar ${d.rating >= n ? 'on' : ''}" data-star="${n}" aria-label="${n} 星">${d.rating >= n ? '★' : '☆'}</button>`).join('')}
+    </div>
+    <p class="star-label">${ratingLabel(d.rating)}</p>
+
+    <div class="review-tag-row" id="review-tags">
+      ${REVIEW_TAGS.map((t) => `<button class="rtag ${d.tags.includes(t) ? 'on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}
+    </div>
+
+    <label class="field review-comment-field">
+      <span class="label">夸夸厨师 <span class="hint">选填 · 最多 50 字</span></span>
+      <textarea class="input" id="review-comment" maxlength="50" placeholder="比如：红烧肉太香了，辛苦啦！">${esc(d.comment)}</textarea>
+      <span class="char-count" id="review-char">${d.comment.length}/50</span>
+    </label>
+
+    <label class="anon-row">
+      <input type="checkbox" class="anon-check" id="review-anon" ${d.anonymous ? 'checked' : ''}>
+      <span class="ar-text"><b>匿名送出</b><small>厨师看到的是「匿名家人」</small></span>
+    </label>
+
+    ${dishes.length ? `
+      <div class="section-title" style="padding:0 0 10px">给每道菜一句好评</div>
+      <div class="fb-list">
+        ${dishes.map((x, i) => {
+          const f = d.feedback[x.dishName] || {};
+          return `<div class="fb-row">
+            ${imgTag(x.dishImage, 'fb-thumb')}
+            <div class="fb-main">
+              <div class="fb-name">${esc(x.dishName)}</div>
+              <div class="fb-sub">今天 ${x.servings} 份</div>
+            </div>
+            <div class="fb-actions">
+              <button class="fb-btn ${f.liked ? 'on' : ''}" data-fb-like="${i}">❤ 好评</button>
+              <button class="fb-btn ${f.wantNext ? 'on' : ''}" data-fb-next="${i}">☑ 下次还点</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+
+    <div class="submit-wrap" style="padding:22px 0 8px">
+      <button class="btn" id="submit-review" ${d.rating ? '' : 'disabled'}>送出好评 🌸</button>
+      <p class="submit-hint">送出后厨师会收到通知，之后也能回来修改</p>
+    </div>
+  </div>`;
+}
+
+function reviewResultHtml(rc) {
+  const mr = rc.myReview || {};
+  const reviews = rc.todayReviews || [];
+  const tags = (mr.tags || []).map((t) => `<span class="rtag-mini">${esc(t)}</span>`).join('');
+  return `<div class="review-wrap">
+    <div class="review-hero done">
+      <div class="rh-flower">🌸</div>
+      <h1>好评已送到厨师手机上</h1>
+      <p>谢谢你，让这顿饭被记住</p>
+    </div>
+
+    <div class="my-review">
+      <div class="mr-stars">${starsText(mr.rating)}</div>
+      ${tags ? `<div class="rc-tags">${tags}</div>` : ''}
+      ${mr.comment ? `<p class="rc-comment">“${esc(mr.comment)}”</p>` : ''}
+      ${mr.isAnonymous ? '<span class="mr-anon">匿名送出</span>' : ''}
+    </div>
+
+    <div class="section-title" style="padding:22px 0 10px">本桌 TOP3</div>
+    ${reviewRankHtml(rc.sessionTop, '这桌还没人给单道菜点赞')}
+
+    <div class="section-title" style="padding:22px 0 10px">家庭好评榜</div>
+    ${reviewRankHtml(rc.familyTop, '家里还没有累计的好评')}
+
+    <div class="section-title" style="padding:22px 0 10px">今天大家的好评 <span class="st-count">${reviews.length}</span></div>
+    ${reviews.length ? reviews.map((r) => reviewCardHtml(r)).join('') : '<p class="rr-empty">你是第一个送好评的人</p>'}
+
+    <div class="review-foot">
+      <button class="btn ghost" id="edit-review">改一下我的好评</button>
+      <button class="btn" data-go-menu>回菜单</button>
+    </div>
+  </div>`;
+}
+
+function bindReview() {
+  bindBack();
+  document.getElementById('edit-review')?.addEventListener('click', () => {
+    state.reviewEditing = true;
+    state.reviewDraft = null;
+    renderPreserveScroll();
+  });
+  document.querySelectorAll('[data-go-menu]').forEach((b) => b.addEventListener('click', () => go('/menu')));
+
+  const rc = state.reviewContext;
+  const d = reviewDraft();
+  if (!rc || !d || rc.myReview && !state.reviewEditing) return;
+
+  document.querySelectorAll('#review-stars [data-star]').forEach((b) => b.addEventListener('click', () => {
+    d.rating = Number(b.dataset.star);
+    haptic(6);
+    renderPreserveScroll();
+  }));
+
+  document.querySelectorAll('#review-tags .rtag').forEach((b) => b.addEventListener('click', () => {
+    const t = b.dataset.tag;
+    const i = d.tags.indexOf(t);
+    if (i >= 0) d.tags.splice(i, 1);
+    else d.tags.push(t);
+    renderPreserveScroll();
+  }));
+
+  const comment = document.getElementById('review-comment');
+  const counter = document.getElementById('review-char');
+  comment?.addEventListener('input', () => {
+    d.comment = comment.value.slice(0, 50);
+    if (counter) counter.textContent = `${d.comment.length}/50`;
+  });
+
+  document.getElementById('review-anon')?.addEventListener('change', (e) => {
+    d.anonymous = e.currentTarget.checked;
+  });
+
+  document.querySelectorAll('[data-fb-like]').forEach((b) => b.addEventListener('click', () => {
+    const dish = (rc.todayDishes || [])[Number(b.dataset.fbLike)];
+    if (!dish) return;
+    const f = d.feedback[dish.dishName] || { liked: false, wantNext: false };
+    f.liked = !f.liked;
+    d.feedback[dish.dishName] = f;
+    haptic(6);
+    renderPreserveScroll();
+  }));
+
+  document.querySelectorAll('[data-fb-next]').forEach((b) => b.addEventListener('click', () => {
+    const dish = (rc.todayDishes || [])[Number(b.dataset.fbNext)];
+    if (!dish) return;
+    const f = d.feedback[dish.dishName] || { liked: false, wantNext: false };
+    f.wantNext = !f.wantNext;
+    d.feedback[dish.dishName] = f;
+    haptic(6);
+    renderPreserveScroll();
+  }));
+
+  document.getElementById('submit-review')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (!d.rating) return toast('先点星星打个分吧');
+    const feedback = (rc.todayDishes || []).map((x) => {
+      const f = d.feedback[x.dishName] || {};
+      return {
+        dishId: x.dishId || null,
+        dishName: x.dishName,
+        dishImage: x.dishImage || '',
+        liked: !!f.liked,
+        wantNext: !!f.wantNext
+      };
+    }).filter((f) => f.liked || f.wantNext);
+
+    btn.disabled = true;
+    btn.textContent = '正在送出…';
+    try {
+      await state.store.submitReview({
+        rating: d.rating,
+        tags: d.tags,
+        comment: d.comment,
+        isAnonymous: d.anonymous,
+        feedback
+      });
+      haptic(15);
+      beep('soft');
+      toast('好评已送到厨师手机上 🌸', { type: 'success', duration: 2400 });
+      state.reviewEditing = false;
+      state.reviewDraft = null;
+      await refreshData(true);
+      render();
+    } catch (err) {
+      toast(err.message || '送出失败', { duration: 4000 });
+      btn.disabled = false;
+      btn.textContent = '送出好评 🌸';
+    }
+  });
+}
+
 /* ============ K01 接单看板 ============ */
 function activeGroups() {
   const groups = new Map();
@@ -1151,6 +1486,23 @@ function groupCardHtml(g, done) {
   </article>`;
 }
 
+function mealStateHtml() {
+  if (!state.store.closeMealSession || !state.reviewContext) return '';
+  const rc = state.reviewContext;
+  const closed = rc?.sessionStatus === 'closed';
+  const count = rc?.todayReviewCount || 0;
+  if (closed) {
+    return `<div class="meal-bar closed">
+      <span class="mb-text">🌸 今天已关席，家人可以送好评了${count ? ` · 已收到 ${count} 条` : ''}</span>
+      <button class="btn tiny ghost" data-reopen-meal>重新开席</button>
+    </div>`;
+  }
+  return `<div class="meal-bar">
+    <span class="mb-text">还在上菜？上齐后关席，家人就能送好评</span>
+    <button class="btn tiny" data-close-meal>上菜完毕</button>
+  </div>`;
+}
+
 function pageChefBoard() {
   const active = activeGroups();
   const done = doneGroups();
@@ -1174,6 +1526,7 @@ function pageChefBoard() {
         <div class="live-dot"><i></i>${state.mode === 'cloud' ? '实时连接中' : '演示模式'}</div>
       </div>
     </div>
+    ${mealStateHtml()}
     <div class="chef-switch">
       <div class="seg" id="chef-tabs">
         <button data-tab="active" class="${state.chefTab === 'active' ? 'active' : ''}">待做 ${active.length}</button>
@@ -1204,6 +1557,31 @@ function bindChefBoard() {
 
   // 家庭切换器
   document.querySelector('[data-fam-pick]')?.addEventListener('click', openFamilyPicker);
+
+  // 关席 / 重新开席（好评开关）
+  document.querySelector('[data-close-meal]')?.addEventListener('click', async () => {
+    const ok = await confirmSheet({
+      title: '上菜完毕，关席',
+      message: '关席后家人就能给这顿饭送好评，也会收到你的好评推送。',
+      confirmText: '关席'
+    });
+    if (!ok) return;
+    try {
+      await state.store.closeMealSession();
+      haptic(12);
+      toast('已关席，家人可以送好评了 🌸', { type: 'success', duration: 2000 });
+      await refreshData(true);
+      renderPreserveScroll();
+    } catch (err) { toast(err.message || '关席失败', { duration: 4000 }); }
+  });
+  document.querySelector('[data-reopen-meal]')?.addEventListener('click', async () => {
+    try {
+      await state.store.reopenMealSession();
+      toast('已重新开席，好评暂时关闭', { duration: 1800 });
+      await refreshData(true);
+      renderPreserveScroll();
+    } catch (err) { toast(err.message || '操作失败', { duration: 4000 }); }
+  });
 
   document.querySelectorAll('.group').forEach((card) => {
     const dishId = card.dataset.dish;
@@ -1371,6 +1749,28 @@ async function openRecipeSheet(dishId) {
 }
 
 /* ============ K03 今日汇总 ============ */
+function chefReviewHtml() {
+  const rc = state.reviewContext;
+  if (!rc) return '';
+  const reviews = rc.todayReviews || [];
+  const avg = Number(rc.todayRatingAvg || 0);
+  const top = rc.familyTop || [];
+  return `
+    <div class="section-title" style="padding:0 20px;margin-top:22px">今天的好评 <span class="st-count">${reviews.length}</span></div>
+    <div class="chef-review">
+      <div class="cr-head">
+        <div class="cr-avg">${reviews.length ? avg.toFixed(1) : '—'}<small> 分</small></div>
+        <div class="cr-meta">${reviews.length ? `${reviews.length} 位家人送了好评` : '关席后家人就能送好评'}</div>
+      </div>
+      ${reviews.length ? reviews.map((r) => reviewCardHtml(r)).join('') : '<p class="rr-empty">还没收到好评 🌸</p>'}
+    </div>
+    ${top.length ? `
+      <div class="section-title" style="padding:0 20px;margin-top:22px">好评最多的菜</div>
+      <div style="padding:0 20px">${reviewRankHtml(top, '')}</div>
+    ` : ''}
+  `;
+}
+
 function pageChefSummary() {
   const todayOrders = state.orders.filter((o) => isToday(o.createdAt) && o.status !== 'cancelled');
   const dishes = new Map();
@@ -1394,6 +1794,7 @@ function pageChefSummary() {
       <div class="stat"><b>${dishes.size}</b><span>菜的种数</span></div>
       <div class="stat"><b>${servings}</b><span>总份数</span></div>
     </div>
+    ${chefReviewHtml()}
     <div class="section-title" style="padding:0 20px">最常点的菜</div>
     <div class="rank-list">
       ${ranking.length ? ranking.map((r, i) => `
@@ -2027,15 +2428,16 @@ function bindSettings() {
   document.getElementById('push-key')?.addEventListener('click', () => {
     openSheet({
       title: '厨师微信推送',
-      sub: '把 Server 酱的 SendKey 填进来，新点单会推到微信',
+      sub: '填 Server 酱的 SendKey，家人一下单就推到微信',
       body: `<label class="field"><span class="label">SendKey</span>
-        <input class="input" id="new-push-key" placeholder="SCT..." value="${esc(state.session.pushKey || '')}"></label>
-        <p class="fineprint">还需要在 Supabase 配置 Database Webhook 调用推送函数，步骤见 部署说明.md。</p>`,
+        <input class="input" id="new-push-key" placeholder="SCT... 或 sctp..." value="${esc(state.session.pushKey || '')}"></label>
+        <p class="fineprint">SendKey 在 sct.ftqq.com 微信扫码后免费获取（以 SCT 或 sctp 开头）。保存后还需要在 Supabase SQL Editor 执行一次 supabase/notify.sql，推送才会生效。</p>`,
       footer: `<button class="btn" id="save-push-key">保存</button>`
     });
     document.getElementById('save-push-key').addEventListener('click', async () => {
       try {
         const key = document.getElementById('new-push-key').value.trim();
+        if (key && !/^sct/i.test(key)) return toast('SendKey 应以 SCT 或 sctp 开头');
         await state.store.setPushKey(key);
         state.session.pushKey = key;
         toast('已保存', { type: 'success' });

@@ -112,6 +112,7 @@ export class CloudStore {
     this.session = null;
     this._listeners = new Set();
     this._channel = null;
+    this._reviewChannel = null;
   }
 
   getSetupState() {
@@ -507,6 +508,47 @@ export class CloudStore {
     return this.bulkUpdateDish(dishId, status);
   }
 
+  /* ---------- 好评 ---------- */
+  async reviewContext() {
+    const familyId = this.session?.currentFamilyId;
+    if (!familyId) return null;
+    const { data, error } = await this.client.rpc('review_context', { p_family_id: familyId });
+    if (error) throw friendly(error);
+    return data || null;
+  }
+
+  async submitReview({ rating, tags = [], comment = '', isAnonymous = false, feedback = [] }) {
+    const familyId = this.session?.currentFamilyId;
+    if (!familyId) throw new Error('请先加入或选择家庭');
+    const { data, error } = await this.client.rpc('submit_review', {
+      p_family_id: familyId,
+      p_rating: Number(rating),
+      p_tags: tags,
+      p_comment: comment || '',
+      p_is_anonymous: !!isAnonymous,
+      p_feedback: feedback || []
+    });
+    if (error) throw friendly(error);
+    this._emit('reviews');
+    return data;
+  }
+
+  async closeMealSession() {
+    const familyId = this.session?.currentFamilyId;
+    if (!familyId) return;
+    const { error } = await this.client.rpc('close_meal_session', { p_family_id: familyId });
+    if (error) throw friendly(error);
+    this._emit('reviews');
+  }
+
+  async reopenMealSession() {
+    const familyId = this.session?.currentFamilyId;
+    if (!familyId) return;
+    const { error } = await this.client.rpc('reopen_meal_session', { p_family_id: familyId });
+    if (error) throw friendly(error);
+    this._emit('reviews');
+  }
+
   /* ---------- 实时 ---------- */
   _emit(type, extra = {}) {
     this._listeners.forEach((fn) => { try { fn({ type, ...extra }); } catch (_) { /* ignore */ } });
@@ -517,12 +559,22 @@ export class CloudStore {
       try { this.client.removeChannel(this._channel); } catch (_) { /* ignore */ }
       this._channel = null;
     }
+    // 好评走独立频道：review.sql 还没执行时，也不影响订单的实时订阅
+    if (this._reviewChannel) {
+      try { this.client.removeChannel(this._reviewChannel); } catch (_) { /* ignore */ }
+      this._reviewChannel = null;
+    }
     const familyId = this.session?.currentFamilyId;
     if (!familyId || this._listeners.size === 0) return;
     this._channel = this.client
       .channel(`family-${familyId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_main', filter: `family_id=eq.${familyId}` }, () => this._emit('orders'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_item', filter: `family_id=eq.${familyId}` }, () => this._emit('orders'))
+      .subscribe();
+    this._reviewChannel = this.client
+      .channel(`review-${familyId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'review', filter: `family_id=eq.${familyId}` }, () => this._emit('reviews'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_feedback', filter: `family_id=eq.${familyId}` }, () => this._emit('reviews'))
       .subscribe();
   }
 
