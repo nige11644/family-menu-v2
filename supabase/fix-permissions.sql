@@ -65,4 +65,57 @@ $$;
 
 grant execute on function public.join_family(text, text, int) to anon, authenticated;
 
+-- 4. 厨师身份调整：解决「两位厨师互相移除不了」的死锁
+--    规则：只有现任厨师能调整；不能改自己；建家者不可降级；家里至少留一位厨师
+create or replace function public.member_set_role(
+  p_family_id uuid,
+  p_user_id uuid,
+  p_role int
+) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_chefs int;
+begin
+  if not public.is_chef_of(p_family_id) then
+    raise exception '只有厨师能调整厨师身份';
+  end if;
+  if coalesce(p_role, -1) not in (0, 1) then
+    raise exception '身份只能是家人或厨师';
+  end if;
+  if p_user_id = auth.uid() then
+    raise exception '不能修改自己的身份';
+  end if;
+
+  if p_role = 0 then
+    if exists (
+      select 1 from public.family
+      where id = p_family_id and created_by = p_user_id
+    ) then
+      raise exception '建家者不能被降为家人';
+    end if;
+
+    select count(*) into v_chefs
+      from public.family_member
+     where family_id = p_family_id and role = 1;
+    if v_chefs <= 1 then
+      raise exception '家里至少要留一位厨师';
+    end if;
+  end if;
+
+  update public.family_member
+     set role = p_role
+   where family_id = p_family_id and user_id = p_user_id;
+
+  if not found then
+    raise exception '成员不存在';
+  end if;
+end;
+$$;
+
+revoke all on function public.member_set_role(uuid, uuid, int) from public;
+grant execute on function public.member_set_role(uuid, uuid, int) to anon, authenticated;
+
 notify pgrst, 'reload schema';

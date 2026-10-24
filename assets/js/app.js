@@ -2504,6 +2504,7 @@ function openMemberSheet(m) {
       ${canManage ? `<div class="mem-actions">
         <button class="mem-act" data-act="alias">✏ 改备注${m.alias ? `（${esc(m.alias)}）` : ''}</button>
         ${m.role === 1 ? '' : `<button class="mem-act" data-act="absent">${m.isAbsent ? '✅ 恢复出席' : '🚫 标记缺席'}</button>`}
+        ${isMe ? '' : `<button class="mem-act" data-act="role">👨‍🍳 ${m.role === 1 ? '取消厨师身份' : '设为厨师'}</button>`}
         ${isMe ? '' : `<button class="mem-act danger" data-act="archive">📦 归档到历史</button>`}
         ${isMe || m.role === 1 ? '' : `<button class="mem-act danger" data-act="remove">🚪 移除成员</button>`}
       </div>` : ''}`,
@@ -2535,16 +2536,30 @@ function openMemberSheet(m) {
       });
       if (!ok) return;
     }
+    if (act === 'role') {
+      const toChef = m.role !== 1;
+      close();
+      const ok = await confirmSheet({
+        title: toChef ? '设为厨师' : '取消厨师身份',
+        message: toChef
+          ? `把 ${name} 设为厨师？ta 就能改备注、归档和移除成员。`
+          : `取消 ${name} 的厨师身份？之后 ta 只能点菜，不能再管理成员。`,
+        confirmText: toChef ? '设为厨师' : '取消厨师'
+      });
+      if (!ok) return;
+    }
     try {
       if (act === 'absent') await state.store.setMemberAbsent(m.userId, !m.isAbsent);
       if (act === 'archive') await state.store.setMemberStatus(m.userId, 'archived');
       if (act === 'remove') await state.store.removeMember(m.userId);
+      if (act === 'role') await state.store.setMemberRole(m.userId, m.role === 1 ? 0 : 1);
       close();
       await loadMembers(true);
       renderPreserveScroll();
       const done = act === 'absent'
         ? (m.isAbsent ? '已恢复出席' : '已标记缺席')
-        : (act === 'remove' ? '已移除成员' : '已归档');
+        : (act === 'remove' ? '已移除成员'
+          : (act === 'role' ? (m.role === 1 ? '已取消厨师' : '已设为厨师') : '已归档'));
       toast(done, { type: 'success', duration: 1500 });
     } catch (err) { toast(err.message || '操作失败', { duration: 3000 }); }
   }));

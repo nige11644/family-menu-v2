@@ -447,6 +447,17 @@ export class CloudStore {
     this._emit('members');
   }
 
+  // 调整厨师身份（取消/授予），规则由服务端 member_set_role 校验
+  async setMemberRole(userId, role) {
+    const { error } = await this.client.rpc('member_set_role', {
+      p_family_id: this.getCurrentFamilyId(),
+      p_user_id: userId,
+      p_role: role ? 1 : 0
+    });
+    if (error) throw friendly(error);
+    this._emit('members');
+  }
+
   // 移除成员（真正退出家庭，对方需用家庭码重新加入；点菜记录保留）
   async removeMember(userId) {
     const { error } = await this.client.rpc('member_remove', {
