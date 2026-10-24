@@ -2384,7 +2384,9 @@ function bindRecipeEdit(id) {
 function pageSettings() {
   const s = state.session;
   const isChef = s.role === 1;
-  const av = avatarPreset(s.avatar);
+  // 自定义头像是 URL，不能只看预设表，否则上传成功也仍显示昵称首字
+  const photo = /^(https?:|data:image)/i.test(s.avatar || '');
+  const av = photo ? null : avatarPreset(s.avatar);
   const soundOn = localStorage.getItem('fm_sound') !== 'off';
   const famName = state.currentFamily?.name || '未选择家庭';
   const joinCode = state.currentFamily?.joinCode || '';
@@ -2392,7 +2394,7 @@ function pageSettings() {
     ${pageTopbar({ title: '我的' })}
     <div class="profile-block">
       <button class="avatar avatar-btn" id="edit-avatar" aria-label="更换头像" style="${av ? `background:${av.bg}` : ''}">
-        ${av ? `<span class="av-emoji">${av.emoji}</span>` : esc((s.nickname || '我').slice(0, 1))}
+        ${photo ? `<img class="av-img" src="${esc(s.avatar)}" alt="">` : av ? `<span class="av-emoji">${av.emoji}</span>` : esc((s.nickname || '我').slice(0, 1))}
         <span class="av-badge">${icon('edit', 11)}</span>
       </button>
       <div>
