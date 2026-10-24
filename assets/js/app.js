@@ -172,6 +172,8 @@ async function maybePromptInviteLink() {
   });
   if (!ok) return;
 
+  // 慢网络下这个请求可能要等好几秒，先挂个 loading 提示，别让人以为没反应
+  const stopLoading = toast(targetName ? '正在切换家庭…' : '正在加入家宴…', { type: 'loading', duration: 0 });
   try {
     if (known) {
       await state.store.switchFamily(known.familyId);
@@ -184,10 +186,13 @@ async function maybePromptInviteLink() {
     await refreshData(true);
     go('/menu');
     renderPreserveScroll();   // 已经在菜单页时 hash 不变，需要主动重绘
-    toast(targetName ? '已切换家庭' : '已加入新家庭', { type: 'success' });
   } catch (err) {
-    toast(err.message || '加入失败，检查一下家庭码', { type: 'error' });
+    stopLoading();
+    toast(err.message || '加入失败，检查一下家庭码', { type: 'error', duration: 4000 });
+    return;
   }
+  stopLoading();
+  toast(targetName ? '已切换家庭' : '已加入新家庭', { type: 'success' });
 }
 
 // 低频心跳：每 60 秒（仅前台）更新一次最后活跃时间，断网/关页面由 Presence 负责

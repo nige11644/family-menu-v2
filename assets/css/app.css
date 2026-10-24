@@ -1452,6 +1452,17 @@ select.input { appearance: none; background-image: none; }
 .toast.out { animation: toastOut .22s ease-in both; }
 .toast .t-icon { color: #f3b58f; flex: 0 0 auto; }
 .toast.success .t-icon { color: #9ed3ad; }
+.toast.loading .t-icon { display: flex; align-items: center; }
+.t-spin {
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .22);
+  border-top-color: #f3b58f;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes toastIn {
   from { opacity: 0; transform: translateY(-10px) scale(.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }

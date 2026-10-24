@@ -43,17 +43,31 @@ export function icon(name, size = 20, cls = '') {
 /* ---------------- 提示 ---------------- */
 const toastLayer = () => document.getElementById('toast-layer');
 
+// duration 传 0 表示常驻，返回的 dismiss() 用来手动关掉（配合 loading 提示）
 export function toast(msg, opts = {}) {
   const layer = toastLayer();
-  if (!layer) return;
+  if (!layer) return () => {};
+  const type = opts.type || '';
   const el = document.createElement('div');
-  el.className = `toast ${opts.type || ''}`;
-  el.innerHTML = `<span class="t-icon">${icon(opts.type === 'success' ? 'check' : 'bell', 18)}</span><span>${esc(msg)}</span>`;
+  el.className = `toast ${type}`;
+  const mark = type === 'loading'
+    ? '<span class="t-spin"></span>'
+    : icon(type === 'success' ? 'check' : 'bell', 18);
+  el.innerHTML = `<span class="t-icon">${mark}</span><span>${esc(msg)}</span>`;
   layer.appendChild(el);
-  setTimeout(() => {
+
+  let done = false;
+  let timer = null;
+  const dismiss = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
     el.classList.add('out');
     setTimeout(() => el.remove(), 240);
-  }, opts.duration || 2600);
+  };
+  const duration = opts.duration === 0 ? 0 : (opts.duration || 2600);
+  if (duration > 0) timer = setTimeout(dismiss, duration);
+  return dismiss;
 }
 
 /* ---------------- 声音 / 震动 ---------------- */
@@ -86,7 +100,7 @@ export function haptic(ms = 8) {
 }
 
 /* ---------------- 底部面板 ---------------- */
-export function openSheet({ title = '', sub = '', body = '', footer = '', className = '', onMount } = {}) {
+export function openSheet({ title = '', sub = '', body = '', footer = '', className = '', onMount, onClose } = {}) {
   const root = document.getElementById('sheet-root');
   const backdrop = document.createElement('div');
   backdrop.className = 'sheet-backdrop';
@@ -119,6 +133,7 @@ export function openSheet({ title = '', sub = '', body = '', footer = '', classN
     sheet.classList.add('closing');
     setTimeout(() => sheet.remove(), 210);
     document.removeEventListener('keydown', onKey);
+    onClose?.();
   };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
@@ -130,15 +145,23 @@ export function openSheet({ title = '', sub = '', body = '', footer = '', classN
 
 export function confirmSheet({ title, message, confirmText = '确定', danger = false }) {
   return new Promise((resolve) => {
+    // 点遮罩/关闭按钮/Esc 也要给出结论，否则调用方会一直 await
+    let settled = false;
+    const settle = (val) => {
+      if (settled) return;
+      settled = true;
+      resolve(val);
+    };
     const { close } = openSheet({
       title,
       body: `<p style="font-size:14px;line-height:1.65;color:var(--ink-2);padding:4px 0 12px">${esc(message)}</p>`,
       footer: `<button class="btn ghost" data-cancel>取消</button>
                <button class="btn ${danger ? '' : ''}" data-ok>${esc(confirmText)}</button>`,
       onMount: ({ sheet }) => {
-        sheet.querySelector('[data-cancel]').addEventListener('click', () => { close(); resolve(false); });
-        sheet.querySelector('[data-ok]').addEventListener('click', () => { close(); resolve(true); });
-      }
+        sheet.querySelector('[data-cancel]').addEventListener('click', () => { settle(false); close(); });
+        sheet.querySelector('[data-ok]').addEventListener('click', () => { settle(true); close(); });
+      },
+      onClose: () => settle(false)
     });
   });
 }
