@@ -1,6 +1,7 @@
 import { demoStore } from './demo-store.js';
 import { CloudStore, readSupabaseConfig, saveSupabaseConfig, testConnection } from './cloud-store.js';
 import { CATEGORIES } from './seed.js';
+import { isWeChat, initWxShare, setWxShare, wxShareReady } from './wx-share.js';
 import {
   esc, icon, toast, beep, haptic, openSheet, confirmSheet,
   fmtTime, fmtDate, timeAgo, isToday, statusMeta, debounce, go
@@ -140,6 +141,35 @@ async function boot() {
   state.presenceIds = state.store.presenceIds?.() || new Set();
   startMemberHeartbeat();
   registerSW();
+  setupWxShare();
+}
+
+// 微信内配置分享卡片：没有公众号配置时静默跳过
+async function setupWxShare() {
+  if (!isWeChat()) return;
+  const ok = await initWxShare();
+  if (!ok) return;
+  const s = inviteShareData();
+  setWxShare({ title: s.title, desc: s.desc, link: s.link });
+}
+
+// 邀请链接与分享文案（全家共用同一份）
+function inviteShareData() {
+  const fam = state.currentFamily;
+  const code = fam?.joinCode || '';
+  const name = fam?.name || '家宴';
+  const base = `${location.origin}${location.pathname}`;
+  const link = code ? `${base}?code=${encodeURIComponent(code)}` : base;
+  return {
+    code,
+    name,
+    link,
+    title: code ? `来「${name}」点菜啦` : '家宴 · 家庭点菜',
+    desc: code ? `家庭码 ${code}，点开链接填码就能点菜` : '一家人一起点菜，谁有空谁掌勺',
+    text: code
+      ? `来「${name}」点菜啦！\n家庭码：${code}\n点开链接填码就能点：${link}`
+      : '来一起用「家宴」点菜吧'
+  };
 }
 
 // 低频心跳：每 60 秒（仅前台）更新一次最后活跃时间，断网/关页面由 Presence 负责
@@ -2496,32 +2526,36 @@ async function copyText(text) {
 
 // 邀请家人：系统分享面板（微信/QQ/短信），不支持的浏览器回退到复制文案
 function openInviteSheet() {
-  const fam = state.currentFamily;
-  const code = fam?.joinCode || '';
-  const name = fam?.name || '家宴';
-  if (!code) return toast('还没有家庭码，先在设置里看看家庭');
-  const url = `${location.origin}${location.pathname}?code=${encodeURIComponent(code)}`;
-  const text = `来「${name}」点菜啦！\n家庭码：${code}\n点开链接填码就能点：${url}`;
+  const s = inviteShareData();
+  if (!s.code) return toast('还没有家庭码，先在设置里看看家庭');
+  const wx = wxShareReady();
+  // 微信内：把分享卡片切成本次邀请内容，用户点右上角「···」发的就是它
+  if (wx) setWxShare({ title: s.title, desc: s.desc, link: s.link });
 
   const { sheet, close } = openSheet({
     title: '邀请家人来点菜',
     sub: '家人填一次家庭码和昵称，以后直接进',
     body: `<div class="invite-card">
         <div class="invite-label">家庭码</div>
-        <div class="invite-code">${esc(code)}</div>
-        <div class="invite-fam">${esc(name)}</div>
+        <div class="invite-code">${esc(s.code)}</div>
+        <div class="invite-fam">${esc(s.name)}</div>
       </div>
-      <button class="btn" id="invite-share" style="width:100%">📤 分享给家人</button>
+      <button class="btn" id="invite-share" style="width:100%">${wx ? '📤 去微信分享' : '📤 分享给家人'}</button>
       <button class="btn ghost" id="invite-copy" style="width:100%;margin-top:8px">复制邀请文案</button>
-      <p class="invite-tip">在微信里如果没弹出分享面板，点右上角「···」→ 发送给朋友，或直接用「复制邀请文案」粘贴到家庭群。</p>`,
+      <p class="invite-tip">${wx
+        ? `分享卡片已带上「${esc(s.title)}」和家庭码，点右上角「···」→ 发送给朋友，或转发到家庭群。`
+        : '在微信里如果没弹出分享面板，点右上角「···」→ 发送给朋友，或直接用「复制邀请文案」粘贴到家庭群。'}</p>`,
     footer: `<button class="btn ghost" data-sheet-close>关闭</button>`
   });
 
-  const sharePayload = { title: `一起用「${name}」点菜`, text, url };
   sheet.querySelector('#invite-share')?.addEventListener('click', async () => {
+    if (wx) {
+      toast('分享卡片已准备好，点右上角「···」发送给朋友', { duration: 4000 });
+      return;
+    }
     if (typeof navigator.share === 'function') {
       try {
-        await navigator.share(sharePayload);
+        await navigator.share({ title: s.title, text: s.text, url: s.link });
         haptic(10);
         close();
         return;
@@ -2529,13 +2563,13 @@ function openInviteSheet() {
         if (err?.name === 'AbortError') return;   // 用户自己取消
       }
     }
-    const copied = await copyText(text);
-    toast(copied ? '已复制邀请，去微信粘贴给家人吧' : `家庭码：${code}`, { duration: 3200 });
+    const copied = await copyText(s.text);
+    toast(copied ? '已复制邀请，去微信粘贴给家人吧' : `家庭码：${s.code}`, { duration: 3200 });
   });
 
   sheet.querySelector('#invite-copy')?.addEventListener('click', async () => {
-    const copied = await copyText(text);
-    toast(copied ? '邀请文案已复制' : `家庭码：${code}`, { type: copied ? 'success' : undefined, duration: 2400 });
+    const copied = await copyText(s.text);
+    toast(copied ? '邀请文案已复制' : `家庭码：${s.code}`, { type: copied ? 'success' : undefined, duration: 2400 });
   });
 }
 
