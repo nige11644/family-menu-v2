@@ -152,14 +152,24 @@ async function maybePromptInviteLink() {
   if (!code) return;
   // 还没进家庭的人会走加入页，那里已经自动填好家庭码
   if (!state.session || !state.currentFamily) return;
-  if ((state.currentFamily.joinCode || '').toUpperCase() === code) return;
 
   // 处理过就把参数去掉，避免手动刷新时反复弹
-  try {
-    const url = new URL(location.href);
-    url.searchParams.delete('code');
-    history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-  } catch (_) { /* 忽略无法改写的地址 */ }
+  const stripCode = () => {
+    try {
+      const url = new URL(location.href);
+      url.searchParams.delete('code');
+      history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch (_) { /* 忽略无法改写的地址 */ }
+  };
+
+  // 自己点的就是当前家庭的邀请：什么都没发生会让人以为链接坏了，给句提示
+  if ((state.currentFamily.joinCode || '').toUpperCase() === code) {
+    stripCode();
+    toast(`你已经在「${state.currentFamily.name || '这个家宴'}」里了，不用再填家庭码`, { duration: 3200 });
+    return;
+  }
+
+  stripCode();
 
   const known = state.families.find((f) => ((f.joinCode || f.family?.joinCode) || '').toUpperCase() === code);
   const targetName = known?.family?.name || known?.familyName || '';
@@ -695,7 +705,10 @@ function bindJoin() {
     const inviteCode = new URLSearchParams(location.search).get('code');
     const codeInput = document.getElementById('join-code');
     if (inviteCode && codeInput && !codeInput.value) {
-      codeInput.value = inviteCode.toUpperCase().slice(0, 12);
+      const filled = inviteCode.toUpperCase().slice(0, 12);
+      codeInput.value = filled;
+      // 明确告诉用户「链接生效了」，否则容易以为点了没反应
+      toast(`已自动填好家庭码 ${filled}，填个昵称就能进`, { duration: 3600 });
     }
   } catch (_) { /* 忽略无法解析的链接 */ }
 

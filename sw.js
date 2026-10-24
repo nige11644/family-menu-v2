@@ -1,5 +1,5 @@
 /* 家宴 Service Worker：缓存应用外壳与菜品图，弱网也能看做法 */
-const VERSION = 'jiayan-v31';
+const VERSION = 'jiayan-v32';
 const SHELL = [
   './',
   './index.html',
