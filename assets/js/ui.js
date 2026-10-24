@@ -32,6 +32,7 @@ const ICONS = {
   key: '<circle cx="7" cy="13" r="3.5"/><path d="M10.5 13h7.5M15 10.5V13M17 13v2.5"/>',
   wifi: '<path d="M2.5 8.5a15 15 0 0119 0M5.5 12a10.5 10.5 0 0113 0M8.7 15.4a5.5 5.5 0 016.6 0"/><circle cx="12" cy="19" r="1.2" fill="currentColor" stroke="none"/>',
   play: '<path d="M8 5.5l11 6.5-11 6.5z"/>',
+  star: '<path d="M12 3.6l2.6 5.2 5.8.9-4.2 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.6 9.7l5.8-.9z"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>'
 };
 

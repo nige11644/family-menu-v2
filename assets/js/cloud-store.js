@@ -117,6 +117,8 @@ export class CloudStore {
     this._channel = null;
     this._reviewChannel = null;
     this._membersChannel = null;
+    this._pointsChannel = null;
+    this._pointsReady = false;
     this._presenceChannel = null;
     this._presenceFamilyId = null;
   }
@@ -535,6 +537,43 @@ export class CloudStore {
     }
   }
 
+  /* ---------- 米粒奖励 ---------- */
+  // reward.sql 未执行时返回 null，米粒入口自动隐藏，不影响其他功能
+  async rewardsHome() {
+    const fid = this.getCurrentFamilyId();
+    if (!fid) return null;
+    const { data, error } = await this.client.rpc('rewards_home', { p_family_id: fid });
+    if (error) {
+      if (/could not find the function|does not exist|PGRST202/i.test(error.message || '')) return null;
+      throw friendly(error);
+    }
+    if (!this._pointsReady) {
+      this._pointsReady = true;
+      this._resubscribe();
+    }
+    return data;
+  }
+
+  async buyImmunity() {
+    const { data, error } = await this.client.rpc('buy_immunity', {
+      p_family_id: this.getCurrentFamilyId()
+    });
+    if (error) throw friendly(error);
+    return data;
+  }
+
+  async useImmunity(gameId) {
+    const { data, error } = await this.client.rpc('use_immunity', { p_game_id: gameId });
+    if (error) throw friendly(error);
+    return data;
+  }
+
+  async washCheckin(gameId) {
+    const { data, error } = await this.client.rpc('wash_checkin', { p_game_id: gameId });
+    if (error) throw friendly(error);
+    return data;
+  }
+
   /* ---------- 摇骰子定洗碗人 ---------- */
   // dice.sql 未执行时返回 null，入口自动隐藏，不影响其他功能
   async diceContext() {
@@ -817,6 +856,10 @@ export class CloudStore {
       try { this.client.removeChannel(this._membersChannel); } catch (_) { /* ignore */ }
       this._membersChannel = null;
     }
+    if (this._pointsChannel) {
+      try { this.client.removeChannel(this._pointsChannel); } catch (_) { /* ignore */ }
+      this._pointsChannel = null;
+    }
     const familyId = this.session?.currentFamilyId;
     if (!familyId || this._listeners.size === 0) return;
     this._channel = this.client
@@ -839,6 +882,14 @@ export class CloudStore {
       this._diceChannel = this.client
         .channel(`dice-${familyId}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'dice_game', filter: `family_id=eq.${familyId}` }, () => this._emit('dice'))
+        .subscribe();
+    }
+    // 米粒：有人得米粒 / 解锁勋章，全家实时看到
+    if (this._pointsReady) {
+      this._pointsChannel = this.client
+        .channel(`points-${familyId}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'point_ledger', filter: `family_id=eq.${familyId}` }, (payload) => this._emit('points', { row: payload.new }))
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'user_badges', filter: `family_id=eq.${familyId}` }, (payload) => this._emit('badges', { row: payload.new }))
         .subscribe();
     }
     // 在线状态：与成员列表共用一个 Presence 频道（断线/关页面自动离线）

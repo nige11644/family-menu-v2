@@ -33,6 +33,8 @@ const state = {
   diceRevealId: '',          // 已播过揭晓动画的局 id，避免重复渲染时反复翻转
   diceTimer: null,           // 60 秒倒计时定时器
   diceRolling: false,        // 骰子请求进行中（防重复点击）
+  rewards: null,             // 米粒奖励首页数据（rewards_home RPC 返回）
+  rewardsLoaded: false,      // 奖励数据是否可用（reward.sql 未执行时为 false）
   members: [],               // 房间成员（room_members RPC 返回）
   membersLoaded: false,      // 成员数据是否可用（members.sql 未执行时为 false）
   presenceIds: new Set(),    // 当前在线成员 userId
@@ -205,8 +207,27 @@ async function refreshData(silent = false) {
 
   // 放在 try 之外：即使菜品/订单加载失败，骰子入口也要能正常判断
   await loadDice(true);
+  await loadRewards(true);
   // 厨师端才需要完整成员列表；家人端不额外增加请求
-  if (state.session?.role === 1) await loadMembers(true);
+  if (viewMode() === 'chef') await loadMembers(true);
+}
+
+/* 读取米粒奖励数据（reward.sql 未执行时返回 null，入口自动隐藏） */
+async function loadRewards(silent = true) {
+  if (!state.store.rewardsHome || !state.session) {
+    state.rewards = null;
+    state.rewardsLoaded = false;
+    return;
+  }
+  try {
+    const data = await state.store.rewardsHome();
+    state.rewards = data || null;
+    state.rewardsLoaded = !!data;
+  } catch (err) {
+    state.rewards = null;
+    state.rewardsLoaded = false;
+    if (!silent) toast(err.message || '米粒加载失败', { duration: 3000 });
+  }
 }
 
 /* 读取房间成员（members.sql 未执行时返回 null，成员页显示执行提示） */
@@ -249,6 +270,7 @@ async function loadDice(silent = true) {
 let refreshTimer = null;
 let presenceTimer = null;
 let membersTimer = null;
+let pointsTimer = null;
 function onRealtime(event) {
   if (!state.ready || event.type === 'profile') return;
 
@@ -274,7 +296,7 @@ function onRealtime(event) {
 
   // 厨师「催单」广播：只针对被点名的在线家人
   if (event.type === 'nudge') {
-    if (state.session?.role !== 1 && Array.isArray(event.userIds) && event.userIds.includes(state.session?.userId)) {
+    if (viewMode() === 'family' && Array.isArray(event.userIds) && event.userIds.includes(state.session?.userId)) {
       showNudgeBanner(event.from);
     }
     return;
@@ -289,17 +311,43 @@ function onRealtime(event) {
     }, 120);
     return;
   }
+
+  // 米粒：有人得米→飘字提示；有人解锁勋章→提示并刷新勋章墙
+  if (event.type === 'points') {
+    const row = event.row;
+    if (row && Number(row.amount) > 0) showPointFloat(row);
+    clearTimeout(pointsTimer);
+    pointsTimer = setTimeout(async () => {
+      await loadRewards(true);
+      if (currentPath() === '/rewards') renderPreserveScroll();
+    }, 260);
+    return;
+  }
+  if (event.type === 'badges') {
+    const row = event.row;
+    clearTimeout(pointsTimer);
+    pointsTimer = setTimeout(async () => {
+      await loadRewards(true);
+      const name = (state.rewards?.badges || []).find((b) => b.code === row?.badge_code);
+      if (row && name && row.user_id === state.session?.userId) {
+        toast(`解锁勋章「${name.emoji} ${name.name}」`, { type: 'success', duration: 3200 });
+        beep('new');
+      }
+      if (currentPath() === '/rewards') renderPreserveScroll();
+    }, 260);
+    return;
+  }
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(async () => {
     const prevIds = new Set(state.orders.map((o) => o.id));
     const prevReviewIds = new Set((state.reviewContext?.todayReviews || []).map((r) => r.id));
     await refreshData(true);
     const fresh = state.orders.find((o) => !prevIds.has(o.id) && o.status !== 'done');
-    if (fresh && state.session?.role === 1 && fresh.userName !== state.session.nickname) {
+    if (fresh && viewMode() === 'chef' && fresh.userName !== state.session.nickname) {
       showNewOrderBanner(fresh);
       beep('new');
     }
-    if (event.type === 'reviews' && state.session?.role === 1) {
+    if (event.type === 'reviews' && viewMode() === 'chef') {
       const freshReview = (state.reviewContext?.todayReviews || []).find((r) => !prevReviewIds.has(r.id) && !r.mine);
       if (freshReview) {
         showNewReviewBanner(freshReview);
@@ -354,6 +402,16 @@ function showNudgeBanner(from) {
   setTimeout(() => el.remove(), 8000);
 }
 
+function showPointFloat(row) {
+  const el = document.createElement('div');
+  const mine = row.user_id === state.session?.userId;
+  el.className = `point-float${mine ? ' mine' : ''}`;
+  el.innerHTML = `<b>+${Number(row.amount)}</b> 🍚 <span>${esc(row.nickname || '家人')} · ${esc(row.note || reasonLabel(row.reason))}</span>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.classList.add('out'), 2400);
+  setTimeout(() => el.remove(), 2800);
+}
+
 /* ============ 路由 ============ */
 function currentPath() {
   const p = location.hash.replace(/^#/, '');
@@ -362,15 +420,16 @@ function currentPath() {
   return p && p !== '/' ? p : '/menu';
 }
 
-/* 视角：厨师可在「厨师端 / 家人端」之间来回切换；客人只有家人端 */
+/* 视角：全家人都能在「厨师端 / 家人端」之间切换，谁有空谁掌厨 */
 function viewMode() {
-  if (state.session?.role !== 1) return 'family';
-  return localStorage.getItem('fm_view_mode') === 'family' ? 'family' : 'chef';
+  if (!state.session) return 'family';
+  const saved = localStorage.getItem('fm_view_mode');
+  if (saved === 'chef' || saved === 'family') return saved;
+  return state.session.role === 1 ? 'chef' : 'family';
 }
 function setViewMode(mode) {
-  if (state.session?.role !== 1) return;
-  if (mode === 'family') localStorage.setItem('fm_view_mode', 'family');
-  else localStorage.removeItem('fm_view_mode');
+  if (!state.session) return;
+  localStorage.setItem('fm_view_mode', mode === 'chef' ? 'chef' : 'family');
 }
 
 function render() {
@@ -385,13 +444,8 @@ function render() {
     location.replace(viewMode() === 'chef' ? '#/chef' : '#/menu');
     return;
   }
-  if (path.startsWith('/chef') && state.session && state.session.role !== 1) {
-    toast('这里是厨房重地，先切换成厨师身份');
-    location.replace('#/menu');
-    return;
-  }
-  // 厨师切到家人视角后，厨师页面暂时不可见，避免两端界面混着用
-  if (path.startsWith('/chef') && state.session?.role === 1 && viewMode() === 'family') {
+  // 家人端视角下不显示厨师页面，避免两端界面混着用
+  if (path.startsWith('/chef') && state.session && viewMode() === 'family') {
     location.replace('#/menu');
     return;
   }
@@ -413,6 +467,8 @@ function render() {
     html = pageReview();
   } else if (path === '/dice') {
     html = pageDice();
+  } else if (path === '/rewards') {
+    html = pageRewards();
   } else if (path === '/chef') {
     state.routeName = 'chef';
     html = pageChefBoard();
@@ -445,6 +501,7 @@ function renderPreserveScroll() {
   else if (path === '/orders') html = pageOrders();
   else if (path === '/review') html = pageReview();
   else if (path === '/dice') html = pageDice();
+  else if (path === '/rewards') html = pageRewards();
   else if (path === '/chef') html = pageChefBoard();
   else if (path === '/chef/summary') html = pageChefSummary();
   else if (path === '/chef/dishes') html = pageChefDishes();
@@ -469,6 +526,7 @@ function bindPage(path, isRefresh = false) {
   else if (path === '/orders') bindOrders();
   else if (path === '/review') bindReview();
   else if (path === '/dice') bindDice();
+  else if (path === '/rewards') bindRewards();
   else if (path === '/chef') bindChefBoard();
   else if (path === '/chef/summary') bindRefresh();
   else if (path === '/chef/dishes') bindChefDishes();
@@ -478,14 +536,24 @@ function bindPage(path, isRefresh = false) {
   else if (path === '/settings') bindSettings();
   document.querySelectorAll('[data-go-review]').forEach((b) => b.addEventListener('click', () => go('/review')));
   document.querySelectorAll('[data-go-dice]').forEach((b) => b.addEventListener('click', () => go('/dice')));
+  document.querySelectorAll('[data-go-rewards]').forEach((b) => b.addEventListener('click', () => go('/rewards')));
+  // 菜单页 ↔ 接单台 顶栏一键换视角：谁有空谁掌厨
+  document.querySelectorAll('[data-switch-view]').forEach((b) => b.addEventListener('click', async () => {
+    const next = b.dataset.switchView === 'chef' ? 'chef' : 'family';
+    setViewMode(next);
+    haptic(10);
+    await refreshData(true);
+    toast(next === 'chef' ? '已切到厨师端，你来掌勺' : '已切到家人端', { type: 'success', duration: 1500 });
+    go(next === 'chef' ? '/chef' : '/menu');
+  }));
   bindNav();
 }
 
 /* ============ 通用片段 ============ */
 function navBar(kind) {
   const items = kind === 'chef'
-    ? [['/chef', '接单', 'bowl'], ['/chef/summary', '汇总', 'list'], ['/chef/dishes', '菜品', 'edit'], ['/chef/members', '成员', 'users'], ['/settings', '我的', 'settings']]
-    : [['/menu', '菜单', 'bowl'], ['/orders', '点菜单', 'receipt'], ['/settings', '我的', 'settings']];
+    ? [['/chef', '接单', 'bowl'], ['/chef/summary', '汇总', 'list'], ['/chef/dishes', '菜品', 'edit'], ['/chef/members', '成员', 'users'], ['/rewards', '米粒', 'star'], ['/settings', '我的', 'settings']]
+    : [['/menu', '菜单', 'bowl'], ['/orders', '点菜单', 'receipt'], ['/rewards', '米粒', 'star'], ['/settings', '我的', 'settings']];
   const path = currentPath();
   return `<nav class="nav">${items.map(([href, label, ic]) => `
     <a href="#${href}" class="${path === href ? 'active' : ''}">${icon(ic, 21)}<span>${label}</span></a>
@@ -704,7 +772,8 @@ function pageMenu() {
   return `<div class="page">
     ${pageTopbar({
       title: `<span style="font-weight:700;letter-spacing:.12em;color:var(--accent)">家宴</span> <span class="sub">${esc(famName)}</span>`,
-      right: `<button class="icon-btn" data-go-settings aria-label="设置">${icon('settings', 21)}</button>`
+      right: `<button class="view-chip" data-switch-view="chef">${icon('flame', 15)} 掌厨</button>
+        <button class="icon-btn" data-go-settings aria-label="设置">${icon('settings', 21)}</button>`
     })}
     <div class="menu-head">
       <div class="menu-hey">${avatarCircle(s, 'sm')}<span>${greeting()}，${esc(s.nickname)}</span></div>
@@ -717,6 +786,7 @@ function pageMenu() {
     </div>
     ${reviewEntryHtml()}
     ${diceEntryHtml()}
+    ${rewardsEntryHtml()}
     <div class="search ${state.menuQuery ? 'filled' : ''}" id="menu-search-wrap">
       <span class="s-icon">${icon('search', 18)}</span>
       <input class="input" id="menu-search" placeholder="搜菜名，比如 番茄" value="${esc(state.menuQuery)}" autocomplete="off">
@@ -1389,7 +1459,7 @@ function reviewRankHtml(list, emptyText) {
 /* 菜单 / 点菜单页的好评入口（关席后才出现） */
 function reviewEntryHtml() {
   const rc = state.reviewContext;
-  if (state.session?.role === 1) return '';
+  if (viewMode() === 'chef') return '';
   if (!rc?.isOpen || rc.myReview) return '';
   return `<button class="review-entry" data-go-review>
     <span class="re-flower">🌸</span>
@@ -1433,16 +1503,37 @@ function diceEntryHtml() {
       : `还差 ${Math.max(0, d.participantCount - d.rolledCount)} 人，去摇一把`;
     cta = g.myRolled ? '去看看' : (g.myParticipant ? '去摇一摇' : '去围观');
   } else if (g?.status === 'revealed') {
-    const loser = (d.rolls || []).find((r) => r.userId === g.loserId);
-    title = '洗碗人已定';
-    sub = `今晚 ${loser?.nickname || '有人'} 洗碗 · ${g.loserValue ?? ''} 点`;
+    const washerId = g.actualWasherId || g.loserId;
+    const washer = (d.rolls || []).find((r) => r.userId === washerId);
+    if (g.washedAt) {
+      title = '碗已经洗好了';
+      sub = `${washer?.nickname || '洗碗人'} 已完成今晚洗碗 🧼`;
+      art = '✅';
+    } else if (g.immunityUsed) {
+      title = '洗碗人已换';
+      sub = `金牌免洗，今晚 ${washer?.nickname || '有人'} 洗碗`;
+      art = '🎟';
+    } else {
+      title = '洗碗人已定';
+      sub = `今晚 ${washer?.nickname || '有人'} 洗碗 · ${g.loserValue ?? ''} 点`;
+      art = '🧼';
+    }
     cta = '看结果';
-    art = '🧼';
   }
   return `<button class="dice-entry" data-go-dice>
     <span class="de-dice">${art}</span>
     <span class="de-text"><b>${title}</b><small>${esc(sub)}</small></span>
     <span class="de-cta">${cta} ${icon('chevron', 15)}</span>
+  </button>`;
+}
+
+function rewardsEntryHtml() {
+  if (!state.rewardsLoaded) return '';
+  const me = state.rewards?.me || {};
+  return `<button class="rw-entry" data-go-rewards>
+    <span class="re-marks">🍚</span>
+    <span class="rw-entry-text"><b>我的米粒 ${Number(me.total || 0)}</b><small>做饭、洗碗、点菜都能攒，攒够 50 换免洗金牌</small></span>
+    <span class="rw-entry-cta">去看榜单 ${icon('chevron', 15)}</span>
   </button>`;
 }
 
@@ -1544,28 +1635,50 @@ function diceResultHtml(d, g) {
   const rule = diceRuleOf(g.rule);
   const rolls = d.rolls || [];
   const loser = rolls.find((r) => r.userId === g.loserId);
+  const washerId = g.actualWasherId || g.loserId;
+  const washer = rolls.find((r) => r.userId === washerId);
+  const myId = state.session?.userId;
+  const iAmWasher = washerId === myId;
+  const iAmLoser = g.loserId === myId;
+  const washed = !!g.washedAt;
+  const immunityUsed = !!g.immunityUsed;
+  const cards = Number(g.myImmunity || 0);
+  const within60 = g.revealedAt ? Date.now() - new Date(g.revealedAt).getTime() < 60_000 : true;
+  const canImmunity = iAmLoser && !immunityUsed && !washed && cards > 0 && within60;
+  const canCheckin = iAmWasher && !washed;
   const animate = state.diceRevealId !== g.id;
   if (animate) state.diceRevealId = g.id;
   return `<div class="dice-result ${animate ? 'anim' : ''}">
     <div class="dr-title">揭晓！</div>
     <div class="dr-sub">${rule.emoji} ${rule.label}${g.round > 1 ? ` · 加时第 ${g.round} 轮` : ''}</div>
     <div class="dice-row">
-      ${rolls.map((r, i) => `<div class="dice-cell ${r.userId === g.loserId ? 'loser' : ''}" style="--i:${i}">
+      ${rolls.map((r, i) => `<div class="dice-cell ${r.userId === g.loserId ? 'loser' : ''} ${r.userId === washerId && immunityUsed ? 'relief' : ''}" style="--i:${i}">
         ${diceFace(r.value)}
         <div class="dc-name">${esc(r.nickname || '家人')}</div>
         <div class="dc-val">${r.value} 点</div>
       </div>`).join('')}
     </div>
-    <div class="dice-loser-card">
-      <div class="dlc-label">今晚洗碗</div>
-      <div class="dlc-name">${esc(loser?.nickname || '…')} 🧼</div>
-      <div class="dlc-sub">${rule.label === '最大的洗碗' ? '最大' : '最小'}的 ${g.loserValue ?? ''} 点</div>
+    <div class="dice-loser-card ${immunityUsed ? 'relief' : ''}">
+      <div class="dlc-label">${immunityUsed ? '金牌免洗' : washed ? '洗碗已完成' : '今晚洗碗'}</div>
+      <div class="dlc-name">${esc((immunityUsed ? loser : washer)?.nickname || '…')} ${immunityUsed ? '🎟' : washed ? '✅' : '🧼'}</div>
+      <div class="dlc-sub">${immunityUsed
+        ? `原抽中 ${esc(loser?.nickname || '家人')}，金牌生效后由 ${esc(washer?.nickname || '家人')} 接手`
+        : washed
+          ? `${esc(washer?.nickname || '家人')} 已经洗完，洗碗米粒已到账`
+          : `${rule.label === '最大的洗碗' ? '最大' : '最小'}的 ${g.loserValue ?? ''} 点`}</div>
     </div>
     <div class="dice-actions">
-      <button class="btn" data-dice-again ${state.diceRolling ? 'disabled' : ''}>再来一局</button>
+      ${canImmunity ? `<button class="btn" data-dice-immunity ${state.diceRolling ? 'disabled' : ''}>用免洗金牌（剩 ${cards} 张）· 让第二名接手</button>` : ''}
+      ${canCheckin ? `<button class="btn" data-dice-wash ${state.diceRolling ? 'disabled' : ''}>洗完了，打卡 +20 🍚</button>` : ''}
+      <button class="btn ${canImmunity || canCheckin ? 'ghost' : ''}" data-dice-again ${state.diceRolling ? 'disabled' : ''}>再来一局</button>
       <a class="btn ghost" href="#/menu">回菜单</a>
     </div>
-    <p class="fineprint">愿赌服输，洗完了让家人给你点个好评。</p>
+    ${iAmLoser && Number(g.myStreak || 0) === 1 ? `<p class="unlucky-hint">⚠ 你已经连输 1 次了，再来一次就解锁【😭 非酋本酋】，还有 +8 🍚 安慰奖</p>` : ''}
+    <p class="fineprint">${canImmunity
+      ? '金牌要在揭晓后 60 秒内用，用过就作废；免洗不等于免打卡，接手的人洗完记得打卡。'
+      : canCheckin
+        ? '洗完点上面的打卡，20 米粒马上到账，还能攒「洗碗劳模」勋章。'
+        : '愿赌服输，洗完了让家人给你点个好评。'}</p>
   </div>`;
 }
 
@@ -1667,7 +1780,151 @@ function bindDice() {
 
   document.querySelector('[data-dice-roll]')?.addEventListener('click', doMyRoll);
 
+  document.querySelector('[data-dice-immunity]')?.addEventListener('click', () => {
+    diceAction(async () => {
+      await state.store.useImmunity(g?.id);
+      await loadRewards(true);
+    }, '金牌生效，第二名接手洗碗');
+  });
+
+  document.querySelector('[data-dice-wash]')?.addEventListener('click', () => {
+    diceAction(async () => {
+      const got = await state.store.washCheckin(g?.id);
+      await loadRewards(true);
+      if (got) toast(`洗完打卡 +${got} 🍚`, { type: 'success', duration: 2400 });
+    }, '洗碗打卡成功');
+  });
+
   if (g?.status === 'rolling') startDiceCountdown();
+}
+
+/* ============ 米粒奖励 ============ */
+const REASON_LABELS = {
+  cook: '完成一餐', wash: '洗碗完成', order: '点了一道菜', first_order: '本餐开胃先锋',
+  review: '提交了好评', comment: '写了夸夸', dish_like: '给菜点了 ❤', dish_liked: '做的菜被点赞',
+  unlucky: '非酋安慰奖', shop: '米粒商城'
+};
+function reasonLabel(reason) {
+  return REASON_LABELS[reason] || '米粒';
+}
+
+function pageRewards() {
+  const head = pageTopbar({ back: true, title: '米粒与勋章' });
+  const rw = state.rewards;
+
+  if (!state.rewardsLoaded || !rw) {
+    return `<div class="page no-nav">
+      ${head}
+      <div class="empty">
+        <div class="em-mark">${icon('star', 26)}</div>
+        <h4>米粒奖励还没开启</h4>
+        <p>${state.mode === 'cloud' ? '请先在 Supabase SQL Editor 执行 supabase/reward.sql' : '体验模式不支持米粒，连接 Supabase 后可用'}</p>
+      </div>
+    </div>`;
+  }
+
+  const me = rw.me || {};
+  const total = Number(me.total || 0);
+  const cards = Number(me.cards || 0);
+  const badges = rw.badges || [];
+  const earned = badges.filter((b) => b.earned).length;
+  const myId = state.session?.userId;
+
+  return `<div class="page">
+    ${head}
+    <div class="rw-hero">
+      <div class="rw-hero-top">
+        <span>我的米粒</span>
+        <span class="rw-card-chip">🎟 免洗金牌 ×${cards}</span>
+      </div>
+      <div class="rw-total">${total}<small>🍚</small></div>
+      <div class="rw-meta">本月 +${Number(me.thisMonth || 0)} · 做饭 ${Number(me.cooks || 0)} 次 · 洗碗 ${Number(me.washes || 0)} 次 · 好评 ${Number(me.reviews || 0)} 次</div>
+      <button class="rw-buy" data-rw-buy ${total < 50 ? 'disabled' : ''}>
+        买一张免洗金牌 · 50 🍚
+      </button>
+      <p class="rw-tip">摇骰子抽中洗碗时，60 秒内用金牌可让第二名接手。</p>
+    </div>
+
+    <div class="rw-sec">
+      <div class="rw-sec-head"><span>勋章墙</span><small>${earned}/${badges.length || 0}</small></div>
+      <div class="rw-badges">
+        ${badges.length ? badges.map((b) => `
+          <div class="rw-badge ${b.earned ? 'earned' : 'locked'} ${b.rarity === 'rare' ? 'rare' : ''}">
+            <span class="rb-emoji">${esc(b.emoji)}</span>
+            <span class="rb-name">${esc(b.name)}</span>
+            <span class="rb-desc">${esc(b.description)}</span>
+          </div>`).join('') : '<p class="rw-none">暂无勋章</p>'}
+      </div>
+    </div>
+
+    <div class="rw-sec">
+      <div class="rw-sec-head"><span>本月米粒榜</span><small>按本月获得排序</small></div>
+      <div class="rw-board">
+        ${(rw.leaderboard || []).length ? rw.leaderboard.map((p, i) => `
+          <div class="rw-row ${p.userId === myId ? 'me' : ''}">
+            <span class="rw-no">${i < 3 ? ['🥇', '🥈', '🥉'][i] : String(i + 1).padStart(2, '0')}</span>
+            ${memberAvatar(p.userId, p.nickname, 'xs')}
+            <span class="rw-name">${esc(p.nickname)}${p.userId === myId ? '<small>我</small>' : ''}
+              <i>做饭 ${Number(p.cooks || 0)} · 洗碗 ${Number(p.washes || 0)}</i>
+            </span>
+            <span class="rw-val">+${Number(p.thisMonth || 0)}<small>${Number(p.total || 0)} 总</small></span>
+          </div>`).join('') : '<p class="rw-none">还没有人拿到米粒，先去做饭或洗碗吧</p>'}
+      </div>
+    </div>
+
+    ${rw.improve && Number(rw.improve.delta) > 0 ? `
+      <div class="rw-sec">
+        <div class="rw-sec-head"><span>本周进步最快</span></div>
+        <div class="rw-improve">
+          <span class="ri-emoji">📈</span>
+          <div><b>${esc(rw.improve.nickname)}</b><small>比上周多拿 ${Number(rw.improve.delta)} 米粒（本周 +${Number(rw.improve.thisWeek || 0)}）</small></div>
+        </div>
+      </div>` : ''}
+
+    <div class="rw-sec">
+      <div class="rw-sec-head"><span>非酋殿堂</span><small>连续抽中洗碗的人</small></div>
+      <div class="rw-hall">
+        ${(rw.unluckyHall || []).length ? rw.unluckyHall.map((p) => `
+          <div class="rw-hall-row">
+            <span>😭</span><b>${esc(p.nickname)}</b><small>连续 ${Number(p.streak || 0)} 次</small>
+          </div>`).join('') : '<p class="rw-none">目前还没有人连续中招</p>'}
+      </div>
+    </div>
+
+    <div class="rw-sec">
+      <div class="rw-sec-head"><span>我的最近流水</span><small>只增不改</small></div>
+      <div class="rw-ledger">
+        ${(rw.ledger || []).length ? rw.ledger.map((l) => `
+          <div class="rw-led">
+            <span class="rl-note">${esc(l.note || reasonLabel(l.reason))}<small>${timeAgo(l.createdAt)}</small></span>
+            <span class="rl-amt ${Number(l.amount) < 0 ? 'minus' : ''}">${Number(l.amount) > 0 ? '+' : ''}${Number(l.amount)}</span>
+          </div>`).join('') : '<p class="rw-none">还没有米粒记录</p>'}
+      </div>
+    </div>
+    <p class="fineprint" style="padding:4px 20px 96px">只奖励不惩罚，做饭的米粒最多。米粒由服务端发放，不能自己加。</p>
+    ${navBar(viewMode() === 'chef' ? 'chef' : 'family')}
+  </div>`;
+}
+
+function bindRewards() {
+  bindBack();
+  document.querySelector('[data-rw-buy]')?.addEventListener('click', async () => {
+    const me = state.rewards?.me || {};
+    const ok = await confirmSheet({
+      title: '买一张免洗金牌？',
+      message: `会花掉 50 米粒，你现在有 ${Number(me.total || 0)} 米粒。抽中洗碗时 60 秒内使用，可让第二名接手。`,
+      confirmText: '买一张'
+    });
+    if (!ok) return;
+    try {
+      await state.store.buyImmunity();
+      await loadRewards(true);
+      toast('金牌到手，下次抽中洗碗就能免洗', { type: 'success', duration: 2600 });
+      renderPreserveScroll();
+    } catch (err) {
+      toast(err.message || '买金牌没成功', { duration: 3200 });
+    }
+  });
 }
 
 
@@ -2014,7 +2271,8 @@ function pageChefBoard() {
   return `<div class="page">
     ${pageTopbar({
       title: `<span style="font-weight:600">接单台</span> <span class="sub">${esc(state.session?.nickname || '主厨')}掌勺</span>`,
-      right: `<button class="icon-btn" data-refresh aria-label="刷新">${icon('refresh', 20)}</button>`
+      right: `<button class="view-chip" data-switch-view="family">家人端</button>
+        <button class="icon-btn" data-refresh aria-label="刷新">${icon('refresh', 20)}</button>`
     })}
     <div class="chef-head">
       <div class="ch-left">
@@ -2228,6 +2486,7 @@ function openMemberSheet(m) {
   const items = stats?.items || [];
   const online = state.presenceIds.has(m.userId);
   const isMe = m.userId === state.session?.userId;
+  const canManage = state.session?.role === 1;   // 成员管理仍只有家庭里的厨师可用
   const name = memberName(m);
   const { sheet, close } = openSheet({
     title: name,
@@ -2242,12 +2501,12 @@ function openMemberSheet(m) {
           ? `<ul class="mob-list">${items.map((i) => `<li><span>${esc(i.dishName)}</span><b>×${i.servings}</b></li>`).join('')}</ul>`
           : `<p class="mob-none">还没点菜${online ? '，可以催一下' : '（现在不在线）'}</p>`}
       </div>
-      <div class="mem-actions">
+      ${canManage ? `<div class="mem-actions">
         <button class="mem-act" data-act="alias">✏ 改备注${m.alias ? `（${esc(m.alias)}）` : ''}</button>
         ${m.role === 1 ? '' : `<button class="mem-act" data-act="absent">${m.isAbsent ? '✅ 恢复出席' : '🚫 标记缺席'}</button>`}
         ${isMe ? '' : `<button class="mem-act danger" data-act="archive">📦 归档到历史</button>`}
         ${isMe || m.role === 1 ? '' : `<button class="mem-act danger" data-act="remove">🚪 移除成员</button>`}
-      </div>`,
+      </div>` : ''}`,
     footer: `<button class="btn ghost" data-sheet-close>关闭</button>`
   });
 
@@ -2538,6 +2797,7 @@ function pageChefSummary() {
       <div class="stat"><b>${dishes.size}</b><span>菜的种数</span></div>
       <div class="stat"><b>${servings}</b><span>总份数</span></div>
     </div>
+    ${rewardsEntryHtml()}
     ${chefReviewHtml()}
     <div class="section-title" style="padding:0 20px">最常点的菜</div>
     <div class="rank-list">
@@ -3067,16 +3327,16 @@ function pageSettings() {
       </button>
       <div>
         <div class="pb-name">${esc(s.nickname)}</div>
-        <div class="pb-meta">${isChef ? (chefView ? '厨师' : '家人视角') : '家人'} · ${esc(famName)} · ${state.mode === 'cloud' ? '云同步' : '体验模式'}</div>
+        <div class="pb-meta">${chefView ? (isChef ? '厨师' : '掌勺') : '家人'} · ${esc(famName)} · ${state.mode === 'cloud' ? '云同步' : '体验模式'}</div>
       </div>
     </div>
     <div class="setting-group">
       <button class="setting-row" id="edit-name">
         <span class="sr-label">昵称</span><span class="sr-value">${esc(s.nickname)}</span>${icon('chevron', 16, 'chev')}
       </button>
-      ${isChef ? `<button class="setting-row" id="switch-view">
+      <button class="setting-row" id="switch-view">
         <span class="sr-label">切换视角</span><span class="sr-value">${chefView ? '当前：厨师端' : '当前：家人端'}</span>${icon('chevron', 16, 'chev')}
-      </button>` : ''}
+      </button>
       <button class="setting-row" id="switch-family">
         <span class="sr-label">当前家庭</span><span class="sr-value">${esc(famName)}</span>${icon('chevron', 16, 'chev')}
       </button>
