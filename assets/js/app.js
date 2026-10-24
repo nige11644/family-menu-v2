@@ -30,6 +30,26 @@ const state = {
   ready: false
 };
 
+/* ---------- 预设头像 ---------- */
+const AVATARS = [
+  { key: 'chef', emoji: '👩‍🍳', bg: '#f7e5db' },
+  { key: 'bowl', emoji: '🍲', bg: '#e5efe7' },
+  { key: 'dumpling', emoji: '🥟', bg: '#f5ead6' },
+  { key: 'shrimp', emoji: '🍤', bg: '#fbe6d8' },
+  { key: 'orange', emoji: '🍊', bg: '#faecd2' },
+  { key: 'flower', emoji: '🌸', bg: '#fbe4e4' },
+  { key: 'cat', emoji: '🐱', bg: '#f3e8d9' },
+  { key: 'panda', emoji: '🐼', bg: '#e9eee9' }
+];
+const avatarPreset = (key) => AVATARS.find((a) => a.key === key) || null;
+
+function avatarCircle(s, size = '') {
+  const p = avatarPreset(s?.avatar);
+  const cls = `avatar${size ? ` ${size}` : ''}`;
+  if (p) return `<span class="${cls}" style="background:${p.bg}"><span class="av-emoji">${p.emoji}</span></span>`;
+  return `<span class="${cls}">${esc((s?.nickname || '我').slice(0, 1))}</span>`;
+}
+
 /* ============ 启动 ============ */
 boot();
 
@@ -487,7 +507,7 @@ function pageMenu() {
       right: `<button class="icon-btn" data-go-settings aria-label="设置">${icon('settings', 21)}</button>`
     })}
     <div class="menu-head">
-      <div class="menu-hey">${greeting()}，${esc(s.nickname)}</div>
+      <div class="menu-hey">${avatarCircle(s, 'sm')}<span>${greeting()}，${esc(s.nickname)}</span></div>
       <h1 class="menu-title">今天想吃什么？</h1>
       <button class="menu-fam" data-fam-pick>
         <span class="dot"></span>
@@ -2307,13 +2327,17 @@ function bindRecipeEdit(id) {
 function pageSettings() {
   const s = state.session;
   const isChef = s.role === 1;
+  const av = avatarPreset(s.avatar);
   const soundOn = localStorage.getItem('fm_sound') !== 'off';
   const famName = state.currentFamily?.name || '未选择家庭';
   const joinCode = state.currentFamily?.joinCode || '';
   return `<div class="page">
     ${pageTopbar({ title: '我的' })}
     <div class="profile-block">
-      <div class="avatar">${esc((s.nickname || '我').slice(0, 1))}</div>
+      <button class="avatar avatar-btn" id="edit-avatar" aria-label="更换头像" style="${av ? `background:${av.bg}` : ''}">
+        ${av ? `<span class="av-emoji">${av.emoji}</span>` : esc((s.nickname || '我').slice(0, 1))}
+        <span class="av-badge">${icon('edit', 11)}</span>
+      </button>
       <div>
         <div class="pb-name">${esc(s.nickname)}</div>
         <div class="pb-meta">${isChef ? '厨师 · ' : '家人 · '}${esc(famName)} · ${state.mode === 'cloud' ? '云同步' : '体验模式'}</div>
@@ -2357,8 +2381,35 @@ function pageSettings() {
   </div>`;
 }
 
+function openAvatarSheet() {
+  const cur = state.session?.avatar || '';
+  openSheet({
+    title: '换个头像',
+    sub: '挑一个代表你的小图标',
+    body: `<div class="avatar-grid">${AVATARS.map((a) => `
+      <button class="avatar-opt ${a.key === cur ? 'active' : ''}" data-avatar="${a.key}" aria-label="头像 ${a.key}">
+        <span class="avatar-opt-pic" style="background:${a.bg}">${a.emoji}</span>
+      </button>`).join('')}</div>`,
+    footer: `<button class="btn ghost" id="avatar-reset">恢复默认（昵称首字）</button>`
+  });
+  const save = async (key) => {
+    try {
+      await state.store.updateProfile({ avatar: key });
+      state.session = state.store.getSession();
+      toast(key ? '头像已换好' : '已恢复默认头像', { type: 'success' });
+      document.querySelector('.sheet-backdrop')?.click();
+      renderPreserveScroll();
+    } catch (err) { toast(err.message); }
+  };
+  document.querySelectorAll('[data-avatar]').forEach((b) => {
+    b.addEventListener('click', () => save(b.dataset.avatar));
+  });
+  document.getElementById('avatar-reset')?.addEventListener('click', () => save(''));
+}
+
 function bindSettings() {
   bindBack();
+  document.getElementById('edit-avatar')?.addEventListener('click', openAvatarSheet);
   document.getElementById('edit-name')?.addEventListener('click', () => {
     openSheet({
       title: '改个昵称',

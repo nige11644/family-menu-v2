@@ -36,6 +36,7 @@ create table if not exists public.user_profiles (
   nickname text not null default '',
   current_family_id uuid references public.family (id) on delete set null,
   push_key text not null default '',
+  avatar text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

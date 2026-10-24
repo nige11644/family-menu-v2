@@ -96,6 +96,9 @@ function friendly(error) {
   if (/jwt expired|invalid jwt/i.test(raw)) return new Error('登录状态已过期，请刷新页面重新进入家宴');
   if (/null value in column .*user_id|23502/i.test(raw)) return new Error('登录状态失效，请刷新页面重新进入家宴');
   if (/家庭码/.test(raw)) return new Error('家庭码不正确，请核对家庭群里的 6 位码');
+  if (/avatar/i.test(raw) && /(column|schema cache|PGRST204|42703)/i.test(raw)) {
+    return new Error('数据库缺少头像字段：请先在 SQL Editor 执行 supabase/avatar.sql');
+  }
   if (/row-level security|permission denied/i.test(raw)) return new Error('权限不足：请确认 SQL 脚本里的 RLS 已执行，或当前账号是厨师');
   if (/does not exist|relation .* not found/i.test(raw)) return new Error('数据库还没有建表：请先在 SQL Editor 执行 supabase/schema.sql');
   if (/could not find the function/i.test(raw)) return new Error('数据库缺少函数：请先在 SQL Editor 执行 supabase/schema.sql');
@@ -194,6 +197,7 @@ export class CloudStore {
       families,
       currentFamilyId,
       pushKey: profile?.push_key || '',
+      avatar: profile?.avatar || '',
       mode: 'cloud'
     };
     return this.session;
@@ -306,7 +310,7 @@ export class CloudStore {
     this.session = null;
   }
 
-  async updateProfile({ nickname, role }) {
+  async updateProfile({ nickname, role, avatar }) {
     const s = this.session;
     if (!s) return null;
     if (nickname) {
@@ -315,6 +319,14 @@ export class CloudStore {
         .eq('user_id', s.userId);
       if (error) throw friendly(error);
       s.nickname = nickname.trim().slice(0, 12);
+    }
+    if (avatar !== undefined) {
+      const next = String(avatar || '').slice(0, 24);
+      const { error } = await this.client.from('user_profiles')
+        .update({ avatar: next, updated_at: new Date().toISOString() })
+        .eq('user_id', s.userId);
+      if (error) throw friendly(error);
+      s.avatar = next;
     }
     // 昵称/角色按家庭存在 family_member 上
     if ((nickname || role !== undefined) && s.currentFamilyId) {

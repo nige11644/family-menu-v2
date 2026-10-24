@@ -217,11 +217,12 @@ class DemoStore {
 
   async logout() { localStorage.removeItem(SESSION_KEY); }
 
-  async updateProfile({ nickname, role }) {
+  async updateProfile({ nickname, role, avatar }) {
     const s = this.getSession();
     if (!s) return null;
     const next = { ...s };
     if (nickname) next.nickname = nickname.trim().slice(0, 12);
+    if (avatar !== undefined) next.avatar = String(avatar || '');
     if (role !== undefined) {
       if (s.currentFamilyId) {
         const fm = next.families.find((x) => x.familyId === s.currentFamilyId);
