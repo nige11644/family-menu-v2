@@ -865,6 +865,7 @@ function pageMenu() {
         <button class="icon-btn" data-go-settings aria-label="设置">${icon('settings', 21)}</button>`
     })}
     <div class="menu-head">
+      ${rewardsEntryHtml()}
       <div class="menu-hey">${avatarCircle(s, 'sm')}<span>${greeting()}，${esc(s.nickname)}</span></div>
       <h1 class="menu-title">今天想吃什么？</h1>
       <button class="menu-fam" data-fam-pick>
@@ -874,7 +875,6 @@ function pageMenu() {
       </button>
     </div>
     ${reviewEntryHtml()}
-    ${rewardsEntryHtml()}
     ${diceEntryHtml()}
     <div class="search ${state.menuQuery ? 'filled' : ''}" id="menu-search-wrap">
       <span class="s-icon">${icon('search', 18)}</span>
@@ -1627,7 +1627,7 @@ function diceEntryHtml() {
 function rewardsEntryHtml() {
   if (!state.rewardsLoaded) return '';
   const me = state.rewards?.me || {};
-  return `<div class="rw-entry-row"><button class="rw-entry" data-go-rewards aria-label="我的米粒" title="我的米粒">
+  return `<div class="menu-pill"><button class="rw-entry" data-go-rewards aria-label="我的米粒" title="我的米粒">
     <span class="re-marks">🍚</span><b class="rw-count">${Number(me.total || 0)}</b>
   </button></div>`;
 }
