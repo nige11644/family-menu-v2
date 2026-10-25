@@ -2284,10 +2284,10 @@ a[href*='netlify'] { display: none !important; }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* 米粒入口：和顶栏「掌厨」同宽的小胶囊，贴在摇一摇卡片上边、右对齐 */
+/* 米粒入口：和顶栏「掌厨」同宽的小胶囊，贴在摇一摇卡片上边、左对齐 */
 .rw-entry-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin: 0 18px 6px;
 }
 .rw-entry {
