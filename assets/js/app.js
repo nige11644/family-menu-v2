@@ -733,11 +733,11 @@ function pageJoin() {
         <div class="form-error" id="join-error"></div>
         <button class="btn" type="submit">进入家宴</button>
         <button class="btn ghost" type="button" id="join-register" style="margin-top:10px">一键开店 · 我是厨师</button>
-        ${isCloud ? `<button class="btn ghost" type="button" id="join-email" style="margin-top:10px">邮箱登录 · 换回原来的身份</button>` : ''}
         <p class="fineprint" style="margin-top:8px">没有家庭码？点「一键开店」直接给自己开一个厨房，进去后把家庭码发给家人。</p>
       </form>
       <div class="join-foot">
-        <button class="link-btn" id="connect-cloud" style="margin-left:auto">${cloudReady ? '连接设置' : '连接 Supabase'}</button>
+        ${isCloud ? `<button class="link-btn" type="button" id="join-email">邮箱登录</button>` : ''}
+        <button class="link-btn" id="connect-cloud">${cloudReady ? '连接设置' : '连接 Supabase'}</button>
       </div>
       <p class="fineprint">${isCloud ? '点菜会实时出现在厨师手机上，厨师也能收到微信提醒（需配置推送）。' : '演示模式里已有妈妈、爸爸的点单，可以直接体验点菜和按菜汇总。'}</p>
     </div>

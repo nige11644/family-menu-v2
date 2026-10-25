@@ -411,8 +411,8 @@ select.input { appearance: none; background-image: none; }
   margin-top: 20px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-end;   /* 「邮箱登录」在左、「连接设置」在右，右边缘与一键开店按钮对齐 */
+  gap: 18px;
 }
 .link-btn {
   border: 0;
