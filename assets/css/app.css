@@ -1857,8 +1857,8 @@ a[href*='netlify'] { display: none !important; }
   margin: 0 18px 14px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 11px 13px;
+  gap: 12px;
+  padding: 13px 15px;
   border: 1px solid #d9e3da;
   border-radius: 16px;
   background: linear-gradient(120deg, #f7fbf8 0%, #eef5f0 100%);
@@ -1866,28 +1866,6 @@ a[href*='netlify'] { display: none !important; }
   text-align: left;
 }
 .dice-entry:active { transform: scale(.985); }
-.dice-entry .de-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font-family: inherit;
-  text-align: left;
-}
-.dice-entry .de-side {
-  flex: 0 0 auto;
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 5px;
-}
 .dice-entry .de-dice {
   flex: 0 0 auto;
   width: 40px;
@@ -1907,11 +1885,11 @@ a[href*='netlify'] { display: none !important; }
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 5px 10px;
+  padding: 7px 11px;
   border-radius: 999px;
   background: var(--green);
   color: #fff;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -2306,7 +2284,12 @@ a[href*='netlify'] { display: none !important; }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* 米粒入口：和顶栏「掌厨」同宽的小胶囊，放在摇一摇卡片右上角 */
+/* 米粒入口：和顶栏「掌厨」同宽的小胶囊，贴在摇一摇卡片上边、右对齐 */
+.rw-entry-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 18px 6px;
+}
 .rw-entry {
   display: inline-flex;
   align-items: center;
