@@ -587,8 +587,10 @@ function renderPreserveScroll() {
   else if (path === '/join') html = pageJoin();
   else return;
   appEl.innerHTML = html;
-  window.scrollTo(0, y);
   bindPage(path, true);
+  // 放在 bindPage 之后：绑定过程里的滚动相关操作（标签条定位等）会改变滚动位置，
+  // 先滚再绑定会被覆盖，表现为「点一下底部菜品就跳回页首」
+  window.scrollTo(0, y);
 }
 
 function bindPage(path, isRefresh = false) {
@@ -929,12 +931,20 @@ function bindMenu() {
 }
 
 function syncMenuChips() {
+  const wrap = document.getElementById('menu-chips');
+  let active = null;
   document.querySelectorAll('#menu-chips .chip').forEach((x) => {
     const on = x.dataset.cat === state.menuCategory;
     x.classList.toggle('active', on);
-    // 让选中标签滚进可视区（block:nearest 避免页面纵向滚动）
-    if (on) x.scrollIntoView({ block: 'nearest', inline: 'center' });
+    if (on) active = x;
   });
+  // 只横向滚动标签条本身。不能用 scrollIntoView：页面滚到底部时
+  // 标签条在视口外，block:'nearest' 会把整个页面纵向拽回顶部
+  if (!wrap || !active) return;
+  const r = active.getBoundingClientRect();
+  const w = wrap.getBoundingClientRect();
+  const left = wrap.scrollLeft + (r.left - w.left) + r.width / 2 - w.width / 2;
+  wrap.scrollLeft = Math.max(0, left);
 }
 
 /* 菜单卡片快捷加菜：+1 份（无备注），不跳详情 */
