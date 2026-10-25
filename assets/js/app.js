@@ -520,13 +520,17 @@ function render() {
     location.replace(viewMode() === 'chef' ? '#/chef' : '#/menu');
     return;
   }
-  // 家人端视角下不显示厨师页面，避免两端界面混着用
-  if (path.startsWith('/chef') && state.session && viewMode() === 'family') {
-    location.replace('#/menu');
-    return;
+  const m = (re) => path.match(re);
+
+  // 路由与视角必须一致：进了家人端页面就记成家人端，进了厨师端页面就记成厨师端。
+  // 否则「米粒 / 我的」这类两端共用的页面会按旧视角渲染底部导航，
+  // 表现为从家人端点「米粒」后底部突然变成接单/菜品/成员那套
+  if (path.startsWith('/chef')) {
+    setViewMode('chef');
+  } else if (path === '/menu' || path === '/orders' || path.startsWith('/dish') || path.startsWith('/recipe')) {
+    setViewMode('family');
   }
 
-  const m = (re) => path.match(re);
   let html = '';
 
   if (path === '/join') {
@@ -564,6 +568,10 @@ function render() {
     html = pageMenu();
   }
 
+  // 根路径直接打开时把视角写回地址栏，后续刷新/再进都按这个视角走
+  if (!location.hash) {
+    try { history.replaceState(null, '', `#${path}`); } catch (_) { /* ignore */ }
+  }
   appEl.innerHTML = html;
   window.scrollTo(0, 0);
   bindPage(path);
