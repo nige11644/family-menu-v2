@@ -411,9 +411,11 @@ select.input { appearance: none; background-image: none; }
   margin-top: 20px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;   /* 「邮箱登录」在左、「连接设置」在右，右边缘与一键开店按钮对齐 */
   gap: 18px;
 }
+/* 「邮箱登录」贴左、「连接设置」贴右，两端与「一键开店」按钮的左右边缘对齐；
+   演示模式只有「连接设置」一个链接时，也让它靠右 */
+.join-foot .link-btn:last-child { margin-left: auto; }
 .link-btn {
   border: 0;
   background: none;
