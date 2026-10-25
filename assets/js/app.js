@@ -27,6 +27,9 @@ const state = {
   reviewContext: null,       // 好评上下文（review_context RPC 返回）
   reviewDraft: null,         // 好评表单草稿（按 session 缓存）
   reviewEditing: false,      // 已送好评后是否正在修改
+  tip: null,                 // 好评打赏面板（tip_overview RPC 返回，SQL 未执行时为 null）
+  tipTargetId: '',           // 当前选中的打赏对象
+  tipBusy: false,            // 打赏请求进行中（防连点）
   dice: null,                // 摇骰子上下文（dice_context RPC 返回）
   diceLoaded: false,         // 是否已加载过骰子数据（SQL 未执行时保持 false，入口自动隐藏）
   diceRule: 'max_lose',      // 开局默认规则
@@ -283,6 +286,7 @@ async function refreshData(silent = false) {
   // 放在 try 之外：即使菜品/订单加载失败，骰子入口也要能正常判断
   await loadDice(true);
   await loadRewards(true);
+  await loadTipOverview(true);
   // 厨师端才需要完整成员列表；家人端不额外增加请求
   if (viewMode() === 'chef') await loadMembers(true);
 }
@@ -302,6 +306,25 @@ async function loadRewards(silent = true) {
     state.rewards = null;
     state.rewardsLoaded = false;
     if (!silent) toast(err.message || '米粒加载失败', { duration: 3000 });
+  }
+}
+
+/* 读取好评打赏面板（review-tip.sql 未执行时返回 null，打赏入口自动隐藏） */
+async function loadTipOverview(silent = true) {
+  if (!state.store.tipOverview || !state.session) {
+    state.tip = null;
+    return;
+  }
+  try {
+    state.tip = await state.store.tipOverview();
+    // 之前选过的人还在列表里就保留，否则回到第一个
+    const chefs = state.tip?.chefs || [];
+    if (!chefs.some((c) => c.userId === state.tipTargetId)) {
+      state.tipTargetId = chefs[0]?.userId || '';
+    }
+  } catch (err) {
+    state.tip = null;
+    if (!silent) toast(err.message || '打赏数据加载失败', { duration: 3000 });
   }
 }
 
@@ -394,7 +417,9 @@ function onRealtime(event) {
     clearTimeout(pointsTimer);
     pointsTimer = setTimeout(async () => {
       await loadRewards(true);
-      if (currentPath() === '/rewards') renderPreserveScroll();
+      // 好评页上有打赏面板，余额要跟着变
+      if (currentPath() === '/review') await loadTipOverview(true);
+      if (currentPath() === '/rewards' || currentPath() === '/review') renderPreserveScroll();
     }, 260);
     return;
   }
@@ -1562,6 +1587,84 @@ function reviewRankHtml(list, emptyText) {
     </div>`).join('')}</div>`;
 }
 
+/* ---------- 好评打赏：把米粒分一点给掌勺的人 ---------- */
+const TIP_AMOUNTS = [5, 10, 20, 50];
+
+function tipCardHtml() {
+  const tip = state.tip;
+  const chefs = tip?.chefs || [];
+  if (!chefs.length) return '';
+
+  const balance = Number(tip.myBalance || 0);
+  const todayOut = Number(tip.todayOut || 0);
+  const left = Math.max(0, Number(tip.dailyCap || 60) - todayOut);
+  const timesLeft = Math.max(0, Number(tip.maxTimes || 3) - Number(tip.todayTimes || 0));
+  const to = chefs.find((c) => c.userId === state.tipTargetId) || chefs[0];
+
+  return `<section class="tip-card">
+    <div class="tip-head">
+      <span>🍚 顺手打赏</span>
+      <small>我的米粒 <b>${balance}</b></small>
+    </div>
+    <p class="tip-sub">${balance <= 0
+      ? '米粒还不够，做饭或洗碗可以攒一点再打赏'
+      : chefs.length > 1
+        ? '这顿饭不错？选个人，把米粒分一点过去'
+        : `这顿饭不错？分点米粒给 ${esc(to.nickname)}`}</p>
+    ${chefs.length > 1 ? `<div class="tip-targets">
+      ${chefs.map((c) => `<button class="tip-target ${c.userId === to.userId ? 'on' : ''}" data-tip-target="${esc(c.userId)}">${esc(c.nickname)}</button>`).join('')}
+    </div>` : ''}
+    <div class="tip-amounts">
+      ${TIP_AMOUNTS.map((n) => {
+        const off = n > balance || n > left || timesLeft <= 0;
+        return `<button class="tip-amt" data-tip-amount="${n}" ${off ? 'disabled' : ''}>${n} 🍚</button>`;
+      }).join('')}
+    </div>
+    <p class="tip-foot">${timesLeft <= 0
+      ? '今天打赏次数用完啦，明天再来'
+      : `今天还能打赏 ${left} 米粒 · 剩 ${timesLeft} 次`}</p>
+  </section>`;
+}
+
+function bindTipCard() {
+  document.querySelectorAll('[data-tip-target]').forEach((b) => b.addEventListener('click', () => {
+    state.tipTargetId = b.dataset.tipTarget;
+    haptic(5);
+    renderPreserveScroll();
+  }));
+  document.querySelectorAll('[data-tip-amount]').forEach((b) => b.addEventListener('click', () => {
+    sendTip(Number(b.dataset.tipAmount));
+  }));
+}
+
+async function sendTip(amount) {
+  if (state.tipBusy) return;
+  const tip = state.tip;
+  const chefs = tip?.chefs || [];
+  const to = chefs.find((c) => c.userId === state.tipTargetId) || chefs[0];
+  if (!to) return toast('还没有可以打赏的人');
+  if (!state.store.tipChef) return toast('打赏功能还没开启');
+  if (!(amount > 0)) return;
+
+  state.tipBusy = true;
+  try {
+    const res = await state.store.tipChef({
+      toUserId: to.userId,
+      amount,
+      reviewId: state.reviewContext?.myReview?.id || null
+    });
+    haptic(12);
+    beep('soft');
+    toast(`已打赏 ${res?.toNickname || to.nickname} ${amount} 米粒 🍚`, { type: 'success', duration: 2200 });
+    await refreshData(true);
+    renderPreserveScroll();
+  } catch (err) {
+    toast(err.message || '打赏失败', { duration: 4000 });
+  } finally {
+    state.tipBusy = false;
+  }
+}
+
 /* 菜单 / 点菜单页的好评入口（关席后才出现） */
 function reviewEntryHtml() {
   const rc = state.reviewContext;
@@ -1906,7 +2009,7 @@ function bindDice() {
 const REASON_LABELS = {
   cook: '完成一餐', wash: '洗碗完成', order: '点了一道菜', first_order: '本餐开胃先锋',
   review: '提交了好评', comment: '写了夸夸', dish_like: '给菜点了 ❤', dish_liked: '做的菜被点赞',
-  unlucky: '非酋安慰奖', shop: '米粒商城'
+  unlucky: '非酋安慰奖', shop: '米粒商城', tip_out: '打赏厨师', tip_in: '收到打赏'
 };
 function reasonLabel(reason) {
   return REASON_LABELS[reason] || '米粒';
@@ -2123,6 +2226,8 @@ function reviewFormHtml(rc) {
       <span class="ar-text"><b>匿名送出</b><small>厨师看到的是「匿名家人」</small></span>
     </label>
 
+    ${tipCardHtml()}
+
     ${dishes.length ? `
       <div class="section-title" style="padding:0 0 10px">给每道菜一句好评</div>
       <div class="fb-list">
@@ -2167,6 +2272,8 @@ function reviewResultHtml(rc) {
       ${mr.isAnonymous ? '<span class="mr-anon">匿名送出</span>' : ''}
     </div>
 
+    ${tipCardHtml()}
+
     <div class="section-title" style="padding:22px 0 10px">本桌 TOP3</div>
     ${reviewRankHtml(rc.sessionTop, '这桌还没人给单道菜点赞')}
 
@@ -2191,6 +2298,8 @@ function bindReview() {
     renderPreserveScroll();
   });
   document.querySelectorAll('[data-go-menu]').forEach((b) => b.addEventListener('click', () => go('/menu')));
+  // 打赏在「填写中 / 已送出」两种状态下都在，所以放在下面的提前 return 之前绑定
+  bindTipCard();
 
   const rc = state.reviewContext;
   const d = reviewDraft();

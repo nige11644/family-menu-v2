@@ -814,6 +814,32 @@ export class CloudStore {
     return data;
   }
 
+  /* 好评打赏：查看自己的余额、可打赏的人 */
+  async tipOverview() {
+    const familyId = this.session?.currentFamilyId;
+    if (!familyId) return null;
+    const { data, error } = await this.client.rpc('tip_overview', { p_family_id: familyId });
+    if (error) {
+      // review-tip.sql 还没执行：静默返回 null，打赏入口自动隐藏
+      if (/could not find the function|does not exist|PGRST202/i.test(error.message || '')) return null;
+      throw friendly(error);
+    }
+    return data || null;
+  }
+
+  async tipChef({ toUserId, amount, reviewId = null }) {
+    const familyId = this.session?.currentFamilyId;
+    if (!familyId) throw new Error('请先加入或选择家庭');
+    const { data, error } = await this.client.rpc('tip_chef', {
+      p_family_id: familyId,
+      p_to_user_id: toUserId,
+      p_amount: Number(amount),
+      p_ref_id: reviewId
+    });
+    if (error) throw friendly(error);
+    return data;
+  }
+
   async closeMealSession() {
     const familyId = this.session?.currentFamilyId;
     if (!familyId) return;
