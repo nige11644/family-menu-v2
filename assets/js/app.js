@@ -490,9 +490,10 @@ function showPointFloat(row) {
 /* ============ 路由 ============ */
 function currentPath() {
   const p = location.hash.replace(/^#/, '');
-  // 从微信/桌面图标直接打开根路径（无 hash）时按菜单页处理，
-  // 否则 render() 会渲染菜单但 bindPage('/') 匹配不上 '/menu'，整页按钮都点不了
-  return p && p !== '/' ? p : '/menu';
+  // 从微信/桌面图标直接打开根路径（无 hash）时，按上次退出时的视角恢复，
+  // 否则厨师端退出去再进来会变成家人端，看着像「视角丢了」
+  if (!p || p === '/') return viewMode() === 'chef' ? '/chef' : '/menu';
+  return p;
 }
 
 /* 视角：全家人都能在「厨师端 / 家人端」之间切换，谁有空谁掌厨 */
