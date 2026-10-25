@@ -2910,12 +2910,17 @@ function openFamilyPicker({ allowCreate = true, allowJoin = true } = {}) {
       ${list.map((f) => {
         const isCur = f.familyId === curId;
         const roleLabel = f.role === 1 ? '厨师' : '家人';
+        // 删除家庭是厨师才有的权限（服务端 delete_family 也会再校验一次）
+        const canDelete = f.role === 1;
         return `<li class="fam-item ${isCur ? 'active' : ''}" data-fam="${esc(f.familyId)}">
           <div class="fam-itm-left">
             <div class="fam-itm-name">${esc(f.family?.name || f.familyName || '未知家庭')}</div>
             <div class="fam-itm-sub">家庭码 ${esc(f.joinCode || '')} · ${roleLabel}</div>
           </div>
-          <div class="fam-itm-check">${isCur ? icon('check', 20) : ''}</div>
+          <div class="fam-itm-right">
+            ${canDelete ? `<button class="fam-del" data-del-fam="${esc(f.familyId)}" aria-label="删除家庭" title="删除家庭">${icon('trash', 16)}</button>` : ''}
+            <div class="fam-itm-check">${isCur ? icon('check', 20) : ''}</div>
+          </div>
         </li>`;
       }).join('')}
       ${allowCreate && list.length < 5 ? `<li class="fam-item fam-create" data-fam-new>${icon('plus', 18)} 创建新家庭</li>` : ''}
@@ -2942,6 +2947,34 @@ function openFamilyPicker({ allowCreate = true, allowJoin = true } = {}) {
       sheet.parentElement.querySelector('.sheet-backdrop')?.click();
       renderPreserveScroll();
     } catch (err) { toast(err.message, { duration: 4000 }); }
+  }));
+  sheet.querySelectorAll('[data-del-fam]').forEach((btn) => btn.addEventListener('click', async (e) => {
+    e.stopPropagation();                        // 点垃圾桶只删除，不要顺手切到这家
+    const fid = btn.dataset.delFam;
+    const item = list.find((f) => f.familyId === fid);
+    const name = item?.family?.name || item?.familyName || '这个家庭';
+    const ok = await confirmSheet({
+      title: `删除「${name}」？`,
+      message: '该家庭的成员、订单、好评、米粒记录会一起删除，删了找不回来。你创建的菜品会保留在自己的菜品库里。',
+      confirmText: '删除家庭',
+      danger: true
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    try {
+      await state.store.deleteFamily(fid);
+      localStorage.removeItem('fm_view_mode');
+      state.cart = loadCart();
+      state.cartNote = '';
+      sheet.parentElement.querySelector('.sheet-backdrop')?.click();
+      await refreshData(true);
+      if (!state.session) { render(); return; }   // 最后一个家庭被删：render 会跳回加入页
+      toast(`已删除「${name}」`, { type: 'success', duration: 1800 });
+      renderPreserveScroll();
+    } catch (err) {
+      btn.disabled = false;
+      toast(err.message || '删除失败', { duration: 4000 });
+    }
   }));
   sheet.querySelector('[data-fam-new]')?.addEventListener('click', () => {
     sheet.parentElement.querySelector('.sheet-backdrop')?.click();

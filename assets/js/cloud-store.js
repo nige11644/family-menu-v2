@@ -353,6 +353,21 @@ export class CloudStore {
     return this.session;
   }
 
+  // 删除整个家庭（只有该家庭的厨师能删；函数在 supabase/delete-family.sql）
+  async deleteFamily(familyId) {
+    const { error } = await this.client.rpc('delete_family', { p_family_id: familyId });
+    if (error) {
+      if (/could not find the function|PGRST202/i.test(error.message || '')) {
+        throw new Error('数据库缺少删除家庭的函数：请先在 SQL Editor 执行 supabase/delete-family.sql');
+      }
+      throw friendly(error);
+    }
+    await this._loadSession();
+    this._resubscribe();
+    this._emit('session');
+    return this.session;
+  }
+
   async leaveFamily(familyId) {
     const { error } = await this.client.rpc('leave_family', { p_family_id: familyId });
     if (error) throw friendly(error);

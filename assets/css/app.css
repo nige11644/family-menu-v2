@@ -1552,7 +1552,24 @@ select.input { appearance: none; background-image: none; }
 .fam-itm-left { flex: 1; min-width: 0; }
 .fam-itm-name { font-size: 15.5px; font-weight: 600; }
 .fam-itm-sub { margin-top: 3px; font-size: 12px; color: var(--muted); letter-spacing: .02em; }
+.fam-itm-right { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .fam-itm-check { color: var(--accent); display: flex; }
+/* 删除家庭：小垃圾桶，吃掉点击后不再触发「切换家庭」 */
+.fam-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.fam-del:active { background: #fbeee8; color: var(--accent-dark); }
+.fam-del:disabled { opacity: .4; }
 .fam-item.fam-create,
 .fam-item.fam-join {
   color: var(--accent);

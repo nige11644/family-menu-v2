@@ -203,6 +203,31 @@ class DemoStore {
     return next;
   }
 
+  async deleteFamily(familyId) {
+    const db = this._db();
+    const s = this.getSession();
+    if (!s) throw new Error('未登录');
+    const fm = s.families.find((x) => x.familyId === familyId);
+    if (!fm) throw new Error('你不是该家庭的成员');
+    if (fm.role !== 1) throw new Error('只有这个家庭的厨师才能删除');
+    db.families = db.families.filter((f) => f.id !== familyId);
+    db.orders = (db.orders || []).filter((o) => o.familyId !== familyId);
+    save(db);
+    const rest = s.families.filter((x) => x.familyId !== familyId);
+    if (rest.length === 0) {
+      localStorage.removeItem(SESSION_KEY);
+    } else {
+      const next = {
+        ...s,
+        families: rest,
+        currentFamilyId: familyId === s.currentFamilyId ? rest[0].familyId : s.currentFamilyId
+      };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    }
+    this._publish('session');
+    return this.getSession();
+  }
+
   async leaveFamily(familyId) {
     const s = this.getSession();
     if (!s) return;
