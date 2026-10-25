@@ -733,6 +733,7 @@ function pageJoin() {
         <div class="form-error" id="join-error"></div>
         <button class="btn" type="submit">进入家宴</button>
         <button class="btn ghost" type="button" id="join-register" style="margin-top:10px">一键开店 · 我是厨师</button>
+        ${isCloud ? `<button class="btn ghost" type="button" id="join-email" style="margin-top:10px">邮箱登录 · 换回原来的身份</button>` : ''}
         <p class="fineprint" style="margin-top:8px">没有家庭码？点「一键开店」直接给自己开一个厨房，进去后把家庭码发给家人。</p>
       </form>
       <div class="join-foot">
@@ -816,6 +817,7 @@ function bindJoin() {
     }
   });
 
+  document.getElementById('join-email')?.addEventListener('click', openAuthSheet);
   document.getElementById('connect-cloud').addEventListener('click', openCloudConfig);
 }
 
@@ -3646,6 +3648,9 @@ function pageSettings() {
       <button class="setting-row" id="edit-name">
         <span class="sr-label">昵称</span><span class="sr-value">${esc(s.nickname)}</span>${icon('chevron', 16, 'chev')}
       </button>
+      ${state.mode === 'cloud' ? `<button class="setting-row" id="account-row">
+        <span class="sr-label">邮箱账号</span><span class="sr-value">${s.email ? esc(s.email) : '未绑定 · 点这里绑定'}</span>${icon('chevron', 16, 'chev')}
+      </button>` : ''}
       <button class="setting-row" id="switch-view">
         <span class="sr-label">切换视角</span><span class="sr-value">${chefView ? '当前：厨师端' : '当前：家人端'}</span>${icon('chevron', 16, 'chev')}
       </button>
@@ -3681,6 +3686,148 @@ function pageSettings() {
     <p class="fineprint" style="padding:0 20px 30px">家宴 · 自用版本。不上架应用商店，不对外提供服务。数据默认保存在你自己的 Supabase 项目里。</p>
     ${navBar(chefView ? 'chef' : 'family')}
   </div>`;
+}
+
+/* ---------- 邮箱密码登录：把匿名身份固定下来 ---------- */
+function openAuthSheet() {
+  if (state.mode !== 'cloud') return toast('体验模式不支持邮箱登录，先连接 Supabase');
+  if (!state.store.signInWithEmail) return toast('当前版本不支持邮箱登录');
+
+  const { close } = openSheet({
+    title: '邮箱登录',
+    sub: '绑一次，以后不用再靠匿名身份',
+    body: `<div class="auth-form">
+      <label class="field">
+        <span class="label">邮箱</span>
+        <input class="input" id="auth-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com">
+      </label>
+      <label class="field">
+        <span class="label">密码 <span class="hint">至少 6 位</span></span>
+        <input class="input" id="auth-pass" type="password" autocomplete="current-password" placeholder="6 位以上">
+      </label>
+      <div class="form-error" id="auth-error"></div>
+      <p class="fineprint">第一次用：点「绑定当前身份」，邮箱会绑在这台手机现在的身份上，家庭、菜品、米粒都不会丢。已经绑过：点「用邮箱登录」回到原身份。</p>
+    </div>`,
+    footer: `<button class="btn" id="auth-signin">用邮箱登录</button>
+      <button class="btn ghost" id="auth-bind" style="margin-top:8px">绑定当前身份 · 首次设置</button>`
+  });
+
+  const showErr = (msg) => {
+    const el = document.getElementById('auth-error');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+  };
+  const busy = (btn, label) => {
+    btn.disabled = true;
+    btn.textContent = label;
+  };
+
+  const read = () => {
+    const email = (document.getElementById('auth-email')?.value || '').trim().toLowerCase();
+    const pass = document.getElementById('auth-pass')?.value || '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showErr('邮箱格式不对，检查一下 @ 和域名'); return null; }
+    if (pass.length < 6) { showErr('密码至少 6 位'); return null; }
+    return { email, pass };
+  };
+
+  const enter = async () => {
+    close();
+    const s = (state.session = state.store.getSession());
+    if (!s) {
+      toast('已登录，填个家庭码就能进家宴', { type: 'success', duration: 3500 });
+      render();
+      return;
+    }
+    state.cart = loadCart();
+    state.cartNote = '';
+    await refreshData(true);
+    toast(`已登录 ${s.email || ''}`, { type: 'success' });
+    go(viewMode() === 'chef' ? '/chef' : '/menu');
+  };
+
+  document.getElementById('auth-signin')?.addEventListener('click', async (e) => {
+    const v = read();
+    if (!v) return;
+    const btn = e.currentTarget;
+    busy(btn, '正在登录…');
+    try {
+      await state.store.signInWithEmail(v.email, v.pass);
+      haptic(10);
+      await enter();
+    } catch (err) {
+      showErr(err.message || '登录失败');
+      btn.disabled = false;
+      btn.textContent = '用邮箱登录';
+    }
+  });
+
+  document.getElementById('auth-bind')?.addEventListener('click', async (e) => {
+    const v = read();
+    if (!v) return;
+    const btn = e.currentTarget;
+    busy(btn, '正在绑定…');
+    try {
+      const res = await state.store.bindEmail(v.email, v.pass);
+      haptic(10);
+      state.session = res.session || state.store.getSession();
+      if (res.pending) {
+        close();
+        toast(`已给 ${res.pendingEmail} 发了确认邮件，点里面的链接后再回来绑定一次`, { duration: 6000 });
+        renderPreserveScroll();
+        return;
+      }
+      await enter();
+    } catch (err) {
+      showErr(err.message || '绑定失败');
+      btn.disabled = false;
+      btn.textContent = '绑定当前身份 · 首次设置';
+    }
+  });
+}
+
+function openAccountSheet() {
+  if (state.mode !== 'cloud') return toast('体验模式不需要邮箱账号');
+  const email = state.session?.email || state.store.currentEmail?.() || '';
+  if (!email) return openAuthSheet();
+
+  openSheet({
+    title: '邮箱账号',
+    sub: email,
+    body: `<div class="auth-form">
+      <p class="fineprint" style="margin-top:0">退出后用这个邮箱 + 密码登录，就能回到同一个身份，家庭、菜品、米粒都在。</p>
+      <label class="field">
+        <span class="label">新密码 <span class="hint">至少 6 位</span></span>
+        <input class="input" id="auth-newpass" type="password" autocomplete="new-password" placeholder="6 位以上">
+      </label>
+      <div class="form-error" id="auth-error"></div>
+    </div>`,
+    footer: `<button class="btn" id="auth-save-pass">保存新密码</button>`
+  });
+
+  const showErr = (msg) => {
+    const el = document.getElementById('auth-error');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+  };
+
+  document.getElementById('auth-save-pass')?.addEventListener('click', async (e) => {
+    const pass = document.getElementById('auth-newpass')?.value || '';
+    if (pass.length < 6) return showErr('密码至少 6 位');
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '正在保存…';
+    try {
+      await state.store.changePassword(pass);
+      toast('密码已更新', { type: 'success' });
+      document.querySelector('.sheet-backdrop')?.click();
+    } catch (err) {
+      showErr(err.message || '修改失败');
+      btn.disabled = false;
+      btn.textContent = '保存新密码';
+    }
+  });
 }
 
 function openAvatarSheet() {
@@ -3732,6 +3879,7 @@ function openAvatarSheet() {
 function bindSettings() {
   bindBack();
   document.getElementById('edit-avatar')?.addEventListener('click', openAvatarSheet);
+  document.getElementById('account-row')?.addEventListener('click', openAccountSheet);
   document.getElementById('edit-name')?.addEventListener('click', () => {
     openSheet({
       title: '改个昵称',
@@ -3827,7 +3975,9 @@ function bindSettings() {
   document.getElementById('logout')?.addEventListener('click', async () => {
     const ok = await confirmSheet({
       title: '退出当前身份',
-      message: '退出后需要重新填家庭码和昵称，点菜单里未提交的菜会保留。',
+      message: state.session?.email
+        ? '已绑定邮箱，退出后用邮箱 + 密码登录就能回到这个身份，家庭和米粒都在。'
+        : '退出后需要重新填家庭码和昵称，点菜单里未提交的菜会保留。',
       confirmText: '退出',
       danger: true
     });

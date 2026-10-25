@@ -106,6 +106,26 @@ function friendly(error) {
   return new Error(raw);
 }
 
+/* Supabase Auth 的英文报错翻成中文，避免用户看到 Invalid login credentials */
+function authError(error) {
+  const raw = String(error?.message || error || '操作失败');
+  const code = String(error?.code || '');
+  if (/invalid login credentials/i.test(raw)) return new Error('邮箱或密码不对');
+  if (/email not confirmed/i.test(raw)) return new Error('邮箱还没验证：先去邮箱点确认链接，再回来登录');
+  if (/already registered|email.*exists|email_exists/i.test(raw) || code === 'email_exists') {
+    return new Error('这个邮箱已经注册过了，改用「用邮箱登录」');
+  }
+  if (/weak.?password|at least 6|password should be/i.test(raw) || code === 'weak_password') {
+    return new Error('密码至少要 6 位');
+  }
+  if (/invalid.*email|unable to validate email/i.test(raw)) return new Error('邮箱格式不对');
+  if (/rate limit|too many|over_email_send_rate_limit/i.test(raw) || code === 'over_email_send_rate_limit') {
+    return new Error('操作太频繁，等一分钟再试');
+  }
+  if (/anonymous/i.test(raw)) return friendly(error);
+  return friendly(error);
+}
+
 export class CloudStore {
   constructor(url, key) {
     this.mode = 'cloud';
@@ -149,6 +169,7 @@ export class CloudStore {
     }
     if (!session) throw new Error('无法建立登录状态');
     this._userId = session.user.id;
+    this._email = session.user.email || '';
     await this._loadSession();
     return this.session;
   }
@@ -203,6 +224,8 @@ export class CloudStore {
       currentFamilyId,
       pushKey: profile?.push_key || '',
       avatar: profile?.avatar || '',
+      email: this._email || '',
+      isAnonymous: !this._email,
       mode: 'cloud'
     };
     return this.session;
@@ -342,6 +365,52 @@ export class CloudStore {
     await this.stopPresence();
     try { await this.client?.auth.signOut(); } catch (_) { /* ignore */ }
     this.session = null;
+    this._email = '';
+    // 退出后补一个匿名访客身份：否则接下去「填家庭码加入」时 auth.uid() 为空会失败
+    try {
+      const { data } = await this.client.auth.signInAnonymously();
+      this._userId = data?.user?.id || null;
+    } catch (_) { this._userId = null; }
+  }
+
+  /* ---------- 邮箱密码登录 ----------
+     绑定：把邮箱+密码绑到当前匿名 user_id 上，家庭/菜品/米粒都保留
+     登录：切回这个邮箱对应的身份（supabase 会用新会话替换当前匿名会话） */
+
+  hasEmail() { return !!this._email; }
+  currentEmail() { return this._email || ''; }
+
+  async signInWithEmail(email, password) {
+    const { data, error } = await this.client.auth.signInWithPassword({
+      email: String(email || '').trim().toLowerCase(),
+      password: String(password || '')
+    });
+    if (error) throw authError(error);
+    this._userId = data.user.id;
+    this._email = data.user.email || '';
+    this.session = await this._loadSession();
+    this._resubscribe();
+    this._emit('session');
+    return this.session;
+  }
+
+  async bindEmail(email, password) {
+    const want = String(email || '').trim().toLowerCase();
+    const { data, error } = await this.client.auth.updateUser({ email: want, password: String(password || '') });
+    if (error) throw authError(error);
+    // 项目开了「Confirm email」时邮箱不会立刻生效，要先去邮箱点确认链接
+    this._email = data.user?.email || '';
+    const applied = (data.user?.email || '') === want;
+    this.session = await this._loadSession();
+    if (this.session) this.session.email = this._email;
+    this._emit('session');
+    return { session: this.session, email: this._email, pending: !applied, pendingEmail: want };
+  }
+
+  async changePassword(password) {
+    if (!this._email) throw new Error('先绑定邮箱才能设置密码');
+    const { error } = await this.client.auth.updateUser({ password: String(password || '') });
+    if (error) throw authError(error);
   }
 
   async updateProfile({ nickname, role, avatar }) {
