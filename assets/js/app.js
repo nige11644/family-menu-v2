@@ -1628,9 +1628,7 @@ function rewardsEntryHtml() {
   if (!state.rewardsLoaded) return '';
   const me = state.rewards?.me || {};
   return `<button class="rw-entry" data-go-rewards>
-    <span class="re-marks">🍚</span>
-    <span class="rw-entry-text"><b>我的米粒 ${Number(me.total || 0)}</b><small>做饭、洗碗、点菜都能攒，攒够 50 换免洗金牌</small></span>
-    <span class="rw-entry-cta">去看榜单 ${icon('chevron', 15)}</span>
+    <span class="re-marks">🍚</span><span>我的米粒</span><b class="rw-count">${Number(me.total || 0)}</b>${icon('chevron', 14)}
   </button>`;
 }
 
