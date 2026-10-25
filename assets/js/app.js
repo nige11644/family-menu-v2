@@ -875,7 +875,6 @@ function pageMenu() {
     </div>
     ${reviewEntryHtml()}
     ${diceEntryHtml()}
-    ${rewardsEntryHtml()}
     <div class="search ${state.menuQuery ? 'filled' : ''}" id="menu-search-wrap">
       <span class="s-icon">${icon('search', 18)}</span>
       <input class="input" id="menu-search" placeholder="搜菜名，比如 番茄" value="${esc(state.menuQuery)}" autocomplete="off">
@@ -1617,18 +1616,23 @@ function diceEntryHtml() {
     }
     cta = '看结果';
   }
-  return `<button class="dice-entry" data-go-dice>
-    <span class="de-dice">${art}</span>
-    <span class="de-text"><b>${title}</b><small>${esc(sub)}</small></span>
-    <span class="de-cta">${cta} ${icon('chevron', 15)}</span>
-  </button>`;
+  return `<div class="dice-entry">
+    <button class="de-main" data-go-dice>
+      <span class="de-dice">${art}</span>
+      <span class="de-text"><b>${title}</b><small>${esc(sub)}</small></span>
+    </button>
+    <span class="de-side">
+      ${rewardsEntryHtml()}
+      <span class="de-cta">${cta} ${icon('chevron', 15)}</span>
+    </span>
+  </div>`;
 }
 
 function rewardsEntryHtml() {
   if (!state.rewardsLoaded) return '';
   const me = state.rewards?.me || {};
-  return `<button class="rw-entry" data-go-rewards>
-    <span class="re-marks">🍚</span><span>我的米粒</span><b class="rw-count">${Number(me.total || 0)}</b>${icon('chevron', 14)}
+  return `<button class="rw-entry" data-go-rewards aria-label="我的米粒" title="我的米粒">
+    <span class="re-marks">🍚</span><b class="rw-count">${Number(me.total || 0)}</b>
   </button>`;
 }
 

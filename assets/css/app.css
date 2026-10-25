@@ -1857,8 +1857,8 @@ a[href*='netlify'] { display: none !important; }
   margin: 0 18px 14px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 13px 15px;
+  gap: 10px;
+  padding: 11px 13px;
   border: 1px solid #d9e3da;
   border-radius: 16px;
   background: linear-gradient(120deg, #f7fbf8 0%, #eef5f0 100%);
@@ -1866,6 +1866,28 @@ a[href*='netlify'] { display: none !important; }
   text-align: left;
 }
 .dice-entry:active { transform: scale(.985); }
+.dice-entry .de-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+}
+.dice-entry .de-side {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 5px;
+}
 .dice-entry .de-dice {
   flex: 0 0 auto;
   width: 40px;
@@ -1885,11 +1907,11 @@ a[href*='netlify'] { display: none !important; }
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 7px 11px;
+  padding: 5px 10px;
   border-radius: 999px;
   background: var(--green);
   color: #fff;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
 }
 
@@ -2284,31 +2306,31 @@ a[href*='netlify'] { display: none !important; }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* 米粒入口：和顶栏「掌厨」同样大小的小胶囊 */
+/* 米粒入口：和顶栏「掌厨」同宽的小胶囊，放在摇一摇卡片右上角 */
 .rw-entry {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 30px;
-  margin: 0 18px 12px;
-  padding: 0 11px 0 10px;
-  border: 1px solid var(--line);
+  justify-content: center;
+  gap: 4px;
+  width: 67px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid #e2ded5;
   border-radius: 999px;
-  background: var(--paper);
+  background: #fff;
   color: var(--ink);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   white-space: nowrap;
 }
 .rw-entry:active { background: var(--paper-2); }
-.re-marks { font-size: 15px; line-height: 1; }
+.re-marks { font-size: 14px; line-height: 1; }
 .rw-count {
   color: var(--accent);
-  font-size: 13px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-.rw-entry svg { color: var(--muted); }
 
 .rw-hero {
   margin: 4px 18px 0;
