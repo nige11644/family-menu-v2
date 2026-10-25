@@ -3378,6 +3378,8 @@ function bindRecipeEdit(id) {
   bindBack();
   const form = document.getElementById('recipe-form');
   const errEl = document.getElementById('recipe-error');
+  // 直接刷新落在本页时菜品还没加载，页面只有骨架，等数据到了会重绘再绑定一次
+  if (!form) return;
 
   const bindRow = (root) => {
     root.querySelectorAll('[data-del-row]').forEach((b) => {
